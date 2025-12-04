@@ -1,0 +1,85 @@
+HELP.md
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+.mvn/*
+mvnw*
+
+*.env
+
+
+
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+Roomify_front/node_modules/
+
+# Expo
+Roomify_front/.expo/
+Roomify_front/dist/
+Roomify_front/web-build/
+Roomify_front/expo-env.d.ts
+
+# Native
+Roomify_front/.kotlin/
+Roomify_front/*.orig.*
+Roomify_front/*.jks
+Roomify_front/*.p8
+Roomify_front/*.p12
+Roomify_front/*.key
+Roomify_front/*.mobileprovision
+
+# Metro
+Roomify_front/.metro-health-check*
+
+# debug
+Roomify_front/npm-debug.*
+Roomify_front/yarn-debug.*
+Roomify_front/yarn-error.*
+
+# macOS
+Roomify_front/.DS_Store
+Roomify_front/*.pem
+
+# local env files
+Roomify_front/.env*.local
+
+# typescript
+Roomify_front/*.tsbuildinfo
+
+Roomify_front/app-example
+
+# generated native folders
+Roomify_front//ios
+Roomify_front//android
+
