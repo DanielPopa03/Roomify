@@ -1,24 +1,29 @@
-import { DarkTheme, DefaultTheme as NavigationDefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
-import { useColorScheme } from 'react-native';
 import { Auth0Provider } from 'react-native-auth0';
-import { MD3LightTheme as DefaultTheme, PaperProvider } from 'react-native-paper';
-import 'react-native-reanimated';
+import { PaperProvider } from 'react-native-paper';
+import { RoleProvider } from '../context/RoleContext';
 import '../global.css';
+import { useColorScheme } from '../hooks/use-color-scheme';
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const domain = process.env.EXPO_PUBLIC_AUTH0_DOMAIN || '';
+  const clientId = process.env.EXPO_PUBLIC_AUTH0_CLIENT_ID || '';
 
   return (
-    <Auth0Provider domain="dev-vje7ys1p3yin1euy.eu.auth0.com" clientId="n6383IGJTkHokyNzg11T2r9o7evIU72w">
-      <PaperProvider theme={DefaultTheme}>
-        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : NavigationDefaultTheme}>
-          <Stack>
-            <Stack.Screen name="login" options={{ headerShown: false }} />
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          </Stack>
-        </ThemeProvider>
-      </PaperProvider>
+    <Auth0Provider domain={domain} clientId={clientId}>
+      <RoleProvider>
+        <PaperProvider>
+          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+            <Stack>
+              <Stack.Screen name="login" options={{ headerShown: false }} />
+              <Stack.Screen name="(role-selection)" options={{ headerShown: false }} />
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            </Stack>
+          </ThemeProvider>
+        </PaperProvider>
+      </RoleProvider>
     </Auth0Provider>
   );
 }
