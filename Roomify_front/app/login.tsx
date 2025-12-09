@@ -9,16 +9,26 @@ export default function LoginScreen() {
 
   const onLogin = async () => {
     try {
-      await authorize({ scope: 'openid profile email' });
-      // On success, go to root to trigger role check in index.tsx
-      router.replace('/');
+        await authorize({ 
+            scope: 'openid profile email offline_access',
+            audience: 'https://roomify-api', // 1. Standard place
+            // @ts-ignore: Allow custom params for Web
+            additionalParameters: {
+                prompt: 'login',
+                audience: 'https://roomify-api' // 2. Force into query params
+            },
+            // @ts-ignore: Some versions check connectionParams
+            connectionParams: {
+                audience: 'https://roomify-api' // 3. Fallback
+            }
+        });
+        router.replace('/');
     } catch (e) {
-      console.log('Login cancelled or failed', e);
+        console.log(e);
     }
   };
 
   return (
-    // style={{ flex: 1 }} ensures the screen is visible even if Tailwind breaks
     <View className="flex-1 justify-center items-center bg-gray-100 p-5" style={{ flex: 1 }}>
       <Text className="text-3xl font-bold text-blue-600 mb-8">Roomify</Text>
 

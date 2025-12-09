@@ -12,7 +12,12 @@ export default function RootLayout() {
   const clientId = process.env.EXPO_PUBLIC_AUTH0_CLIENT_ID || '';
 
   return (
-    <Auth0Provider domain={domain} clientId={clientId}>
+    <Auth0Provider 
+      domain={domain} 
+      clientId={clientId}
+      // @ts-ignore: Force this through in case the web client uses it as a default
+      audience="https://roomify-api"
+    >
       <RoleProvider>
         <PaperProvider>
           <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>

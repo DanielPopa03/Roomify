@@ -7,7 +7,6 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 @Entity
 @Table(name = "users")
@@ -18,13 +17,10 @@ import java.util.UUID;
 public class User {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    private UUID id;
+    @Column(name = "id", unique = true, nullable = false)
+    private String id;
 
-    @Column(name = "auth0_id", unique = true, nullable = false)
-    private String auth0Id;
-
-    @Column(nullable = false)
+    @Column(unique = true, nullable = false)
     private String email;
 
     private String firstName;
@@ -44,4 +40,7 @@ public class User {
 
     @UpdateTimestamp
     private LocalDateTime updatedAt;
+
+    @ManyToOne
+    private Role role;
 }
