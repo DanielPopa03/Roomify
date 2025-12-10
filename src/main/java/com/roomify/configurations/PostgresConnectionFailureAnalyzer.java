@@ -1,4 +1,4 @@
-package com.roomify.config;
+package com.roomify.configurations;
 
 import org.springframework.boot.diagnostics.AbstractFailureAnalyzer;
 import org.springframework.boot.diagnostics.FailureAnalysis;

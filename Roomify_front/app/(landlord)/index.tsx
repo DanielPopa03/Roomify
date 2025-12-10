@@ -7,7 +7,6 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 export default function LandlordSwipeScreen() {
     const router = useRouter();
 
-    // Mock data for potential tenants
     const tenant = {
         image: 'https://randomuser.me/api/portraits/women/44.jpg',
         name: 'Sarah Jenkins',
@@ -18,16 +17,25 @@ export default function LandlordSwipeScreen() {
 
     return (
         <View className="flex-1 bg-white">
-            {/* Header with Profile Button and Filter Button */}
+            {/* Header Area */}
             <View className="flex-row justify-between items-center p-4 mt-10">
-                <TouchableOpacity onPress={() => router.push('/(landlord)/profile')}>
-                    <View className="w-10 h-10 bg-green-200 rounded-full justify-center items-center">
-                        <Text>L</Text>
-                    </View>
-                </TouchableOpacity>
+                {/* LEFT SIDE: Back Button + Profile */}
+                <View className="flex-row items-center">
+                    <TouchableOpacity onPress={() => router.back()} className="mr-4">
+                        <Text className="text-blue-500 text-lg">Back</Text>
+                    </TouchableOpacity>
 
+                    <TouchableOpacity onPress={() => router.push('/(landlord)/profile')}>
+                        <View className="w-10 h-10 bg-green-200 rounded-full justify-center items-center">
+                            <Text className="text-green-800 font-bold">L</Text>
+                        </View>
+                    </TouchableOpacity>
+                </View>
+
+                {/* CENTER: Title */}
                 <Text className="text-xl font-bold">Roomify (Landlord)</Text>
 
+                {/* RIGHT SIDE: Filter Button */}
                 <TouchableOpacity onPress={() => console.log('Filter pressed')}>
                     <View className="w-10 h-10 bg-gray-100 rounded-full justify-center items-center">
                         <Text>F</Text>
@@ -35,7 +43,7 @@ export default function LandlordSwipeScreen() {
                 </TouchableOpacity>
             </View>
 
-            {/* Swipe Card */}
+            {/* Swipe Card Area */}
             <View className="flex-1 items-center justify-center p-4">
                 <View className="w-full h-3/4 bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-200">
                     <Image
@@ -52,7 +60,7 @@ export default function LandlordSwipeScreen() {
             </View>
 
             {/* Action Buttons */}
-            <View className="flex-row justify-evenly mb-10">
+            <View className="flex-row justify-evenly mb-20">
                 <TouchableOpacity className="w-16 h-16 bg-red-100 rounded-full justify-center items-center shadow-sm">
                     <Text className="text-red-500 text-2xl">X</Text>
                 </TouchableOpacity>
@@ -60,6 +68,8 @@ export default function LandlordSwipeScreen() {
                     <Text className="text-green-500 text-2xl">✓</Text>
                 </TouchableOpacity>
             </View>
+
+            {/* FLOATING BUTTON REMOVED */}
         </View>
     );
 }

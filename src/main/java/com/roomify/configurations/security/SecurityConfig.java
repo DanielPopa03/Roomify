@@ -1,43 +1,42 @@
 package com.roomify.configurations.security;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
-import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
-import org.springframework.security.oauth2.core.OAuth2TokenValidator;
-import org.springframework.security.oauth2.jwt.*;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.Arrays;
 import java.util.List;
 
 @Configuration
 public class SecurityConfig {
 
-    @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}")
-    private String issuer;
-
-    @Value("${auth0.audience}")
-    private String audience;
-
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-                .csrf(csrf -> csrf.disable())
+                // 1. Activate CORS using the bean defined below
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+
+                // 2. Disable CSRF (Crucial for APIs to accept POST requests)
+                .csrf(csrf -> csrf.disable())
+
+                // 3. Define Permissions
                 .authorizeHttpRequests(auth -> auth
+                        // Always allow the "Preflight" OPTIONS requests (Browsers send these first)
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
+                        // Require authentication for everything else
                         .anyRequest().authenticated()
                 )
+
+                // 4. Validate Auth0 Tokens
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(Customizer.withDefaults())
                 );
+
         return http.build();
     }
 
@@ -45,26 +44,26 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        configuration.setAllowedOrigins(List.of("*"));
+        // --- THE IMPORTANT PART ---
+        // Explicitly list your frontend URLs.
+        // Using "*" is bad practice and breaks when "AllowCredentials" is true.
+        configuration.setAllowedOrigins(List.of(
+                "http://localhost:8081",  // React Native Web
+                "http://localhost:19006", // Expo Web
+                "http://localhost:8080"   // Backend self-test
+        ));
 
-        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        // Allow standard HTTP methods
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+
+        // Allow the Authorization header (where your Bearer Token lives)
+        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type"));
+
+        // Allow credentials (needed for Auth tokens in some setups)
+        configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
-    }
-
-
-    @Bean
-    JwtDecoder jwtDecoder() {
-        NimbusJwtDecoder jwtDecoder = JwtDecoders.fromOidcIssuerLocation(issuer);
-
-        OAuth2TokenValidator<Jwt> audienceValidator = new AudienceValidator(audience);
-        OAuth2TokenValidator<Jwt> withIssuer = JwtValidators.createDefaultWithIssuer(issuer);
-        OAuth2TokenValidator<Jwt> withAudience = new DelegatingOAuth2TokenValidator<>(withIssuer, audienceValidator);
-
-        jwtDecoder.setJwtValidator(withAudience);
-        return jwtDecoder;
     }
 }
