@@ -37,6 +37,12 @@ export default function LandlordLayout() {
                     tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
                 }}
             />
+            <Tabs.Screen
+                name="profile"
+                options={{
+                    href: null, 
+                }}
+            />
         </Tabs>
     );
 }

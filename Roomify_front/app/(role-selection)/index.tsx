@@ -18,15 +18,10 @@ export default function RoleSelectionScreen() {
         try {
             const credentials = await getCredentials();
             
-            // LOG THIS to be absolutely sure what is going into the fetch
-            console.log("ACTUAL SENDING TOKEN:", credentials?.accessToken);
-
             if (!credentials?.accessToken) {
                 console.error("No access token found");
                 return;
             }
-
-            // Using localhost as requested (Use 10.0.2.2 for Android Emulator)
             const response = await fetch('http://localhost:8080/user/authorize', {
                 method: 'POST',
                 headers: {
@@ -37,14 +32,12 @@ export default function RoleSelectionScreen() {
 
             if (response.ok) {
                 const user = await response.json();
-                const roleName = user.role.name.toLowerCase(); // Assuming Role has a 'name' field
+                const roleName = user.role.name.toLowerCase();
                 
                 console.log("User authorized:", user);
 
-                // Update Context
                 setRole(roleName); 
 
-                // Route based on the role received from Backend
                 if (roleName === 'user' || roleName === 'normal') {
                     router.replace('/(normal)');
                 } else if (roleName === 'landlord') {
@@ -52,7 +45,6 @@ export default function RoleSelectionScreen() {
                 } else if (roleName === 'admin') {
                     router.replace('/(admin)');
                 } else {
-                    // Fallback default
                     router.replace('/(normal)');
                 }
             } else {
