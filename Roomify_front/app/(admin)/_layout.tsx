@@ -1,40 +1,75 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
 import { Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Blue, Neutral } from '@/constants/theme';
 
 export default function AdminLayout() {
-    const colorScheme = useColorScheme();
-
     return (
         <Tabs
             screenOptions={{
-                tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+                tabBarActiveTintColor: Blue[600],
+                tabBarInactiveTintColor: Neutral[400],
                 headerShown: false,
                 tabBarButton: HapticTab,
                 tabBarStyle: Platform.select({
                     ios: {
                         position: 'absolute',
+                        backgroundColor: '#FFFFFF',
+                        borderTopColor: Neutral[100],
                     },
-                    default: {},
+                    default: {
+                        backgroundColor: '#FFFFFF',
+                        borderTopColor: Neutral[100],
+                    },
                 }),
+                tabBarLabelStyle: {
+                    fontSize: 12,
+                    fontWeight: '500',
+                },
             }}>
+            
             <Tabs.Screen
                 name="index"
                 options={{
-                    title: 'Reports',
-                    tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+                    title: 'Dashboard',
+                    tabBarIcon: ({ color, focused }) => (
+                        <Ionicons 
+                            name={focused ? 'grid' : 'grid-outline'} 
+                            size={24} 
+                            color={color} 
+                        />
+                    ),
                 }}
             />
+            
+            <Tabs.Screen
+                name="reports"
+                options={{
+                    title: 'Reports',
+                    tabBarIcon: ({ color, focused }) => (
+                        <Ionicons 
+                            name={focused ? 'flag' : 'flag-outline'} 
+                            size={24} 
+                            color={color} 
+                        />
+                    ),
+                }}
+            />
+
             <Tabs.Screen
                 name="roles"
                 options={{
-                    title: 'Roles',
-                    tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+                    title: 'Users',
+                    tabBarIcon: ({ color, focused }) => (
+                        <Ionicons 
+                            name={focused ? 'people' : 'people-outline'} 
+                            size={24} 
+                            color={color} 
+                        />
+                    ),
                 }}
             />
         </Tabs>

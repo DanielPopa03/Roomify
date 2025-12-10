@@ -39,14 +39,6 @@ export default {
           },
         },
       ],
-      [
-        "react-native-auth0",
-        {
-          domain: process.env.EXPO_PUBLIC_AUTH0_DOMAIN,
-          clientId: process.env.EXPO_PUBLIC_AUTH0_CLIENT_ID,
-          audience: "https://roomify-api",
-        },
-      ],
       "expo-build-properties",
     ],
     experiments: {

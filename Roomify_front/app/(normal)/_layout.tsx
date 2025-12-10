@@ -1,34 +1,47 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
 import { Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Blue, Neutral } from '@/constants/theme';
 
 export default function NormalLayout() {
-    const colorScheme = useColorScheme();
-
     return (
         <Tabs
             screenOptions={{
-                tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+                tabBarActiveTintColor: Blue[600],
+                tabBarInactiveTintColor: Neutral[400],
                 headerShown: false,
                 tabBarButton: HapticTab,
                 tabBarStyle: Platform.select({
                     ios: {
                         position: 'absolute',
+                        backgroundColor: '#FFFFFF',
+                        borderTopColor: Neutral[100],
                     },
-                    default: {},
+                    default: {
+                        backgroundColor: '#FFFFFF',
+                        borderTopColor: Neutral[100],
+                    },
                 }),
+                tabBarLabelStyle: {
+                    fontSize: 12,
+                    fontWeight: '500',
+                },
             }}>
             
             <Tabs.Screen
                 name="index"
                 options={{
-                    title: 'Swipe',
-                    tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+                    title: 'Browse',
+                    tabBarIcon: ({ color, focused }) => (
+                        <Ionicons 
+                            name={focused ? 'home' : 'home-outline'} 
+                            size={24} 
+                            color={color} 
+                        />
+                    ),
                 }}
             />
 
@@ -36,14 +49,27 @@ export default function NormalLayout() {
                 name="match"
                 options={{
                     title: 'Matches',
-                    tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+                    tabBarIcon: ({ color, focused }) => (
+                        <Ionicons 
+                            name={focused ? 'chatbubbles' : 'chatbubbles-outline'} 
+                            size={24} 
+                            color={color} 
+                        />
+                    ),
                 }}
             />
 
             <Tabs.Screen
                 name="profile"
                 options={{
-                    href: null, 
+                    title: 'Profile',
+                    tabBarIcon: ({ color, focused }) => (
+                        <Ionicons 
+                            name={focused ? 'person' : 'person-outline'} 
+                            size={24} 
+                            color={color} 
+                        />
+                    ),
                 }}
             />
         </Tabs>
