@@ -26,8 +26,12 @@ public class SecurityConfig {
 
                 // 3. Define Permissions
                 .authorizeHttpRequests(auth -> auth
-                        // Always allow the "Preflight" OPTIONS requests (Browsers send these first)
+                        // Always allow the "Preflight" OPTIONS requests
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
+
+                        // --- NEW: Allow anyone to view images (Frontend <Image> tag has no token) ---
+                        .requestMatchers("/api/properties/images/**").permitAll()
+
                         // Require authentication for everything else
                         .anyRequest().authenticated()
                 )

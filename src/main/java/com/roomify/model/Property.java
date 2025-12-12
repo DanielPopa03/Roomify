@@ -7,7 +7,9 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 @Entity
@@ -40,10 +42,10 @@ public class Property {
     @Column(length = 2000)
     private String description;
 
-    @Column(name = "number_of_rooms")
+    @Column(nullable = false, name = "number_of_rooms")
     private Integer numberOfRooms;
 
-    @Column(name = "has_extra_bathroom")
+    @Column(nullable = false, name = "has_extra_bathroom")
     private Boolean hasExtraBathroom;
 
     @Enumerated(EnumType.STRING)
@@ -65,4 +67,10 @@ public class Property {
     @Column(name = "tenant_type")
     @Builder.Default // Ensures the builder uses this default empty set instead of null
     private Set<PreferredTenantType> preferredTenants = new HashSet<>();
+
+    // ... inside Property.java
+
+    @OneToMany(mappedBy = "property", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("orderIndex ASC")
+    private List<PropertyImage> images = new ArrayList<>();
 }

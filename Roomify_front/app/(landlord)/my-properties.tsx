@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, Alert, ActivityIndicator, Platform } from 'react-native'; // <--- Added Platform import
+// 1. ADDED 'Image' to imports
+import { View, Text, FlatList, TouchableOpacity, Alert, ActivityIndicator, Platform, Image } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth0 } from 'react-native-auth0';
@@ -51,7 +52,6 @@ export default function MyPropertiesScreen() {
         }, [])
     );
 
-    // --- NEW: Helper function to perform the actual API call ---
     const performDelete = async (id) => {
         try {
             const credentials = await getCredentials();
@@ -67,7 +67,6 @@ export default function MyPropertiesScreen() {
             });
 
             if (response.ok) {
-                // Remove item from list locally
                 setProperties(prev => prev.filter(item => item.id !== id));
                 if (Platform.OS !== 'web') {
                     Alert.alert("Success", "Property deleted");
@@ -85,11 +84,9 @@ export default function MyPropertiesScreen() {
         }
     };
 
-    // --- UPDATED: handleDelete supports both Web and Mobile ---
     const handleDelete = (id) => {
         console.log("DELETING PROPERTY", id);
 
-        // 1. Web Check
         if (Platform.OS === 'web') {
             const confirmed = window.confirm("Are you sure you want to remove this listing?");
             if (confirmed) {
@@ -98,7 +95,6 @@ export default function MyPropertiesScreen() {
             return;
         }
 
-        // 2. Mobile (iOS/Android) Use Native Alert
         Alert.alert(
             "Delete Property",
             "Are you sure you want to remove this listing?",
@@ -113,40 +109,61 @@ export default function MyPropertiesScreen() {
         );
     };
 
-    const renderItem = ({ item }) => (
-        <View className="bg-white p-4 mb-4 rounded-xl border border-gray-100 shadow-sm flex-row">
-            <View className="w-24 h-24 bg-gray-200 rounded-lg mr-4 items-center justify-center">
-                <Text className="text-gray-400 text-xs">No Image</Text>
-            </View>
+    // --- UPDATED RENDER ITEM ---
+    const renderItem = ({ item }) => {
+        // 2. Extract the first image URL if available
+        let imageUrl = item.images && item.images.length > 0 ? item.images[0].url : null;
 
-            <View className="flex-1 justify-between">
-                <View>
-                    <Text className="text-lg font-bold text-gray-800" numberOfLines={1}>
-                        {item.title}
-                    </Text>
-                    <Text className="text-blue-600 font-bold mt-1">
-                        {item.price} RON
-                    </Text>
-                    <Text className="text-gray-500 text-xs mt-1" numberOfLines={1}>
-                        {item.address}
-                    </Text>
+        // 3. Android Emulator Fix: Replace localhost with 10.0.2.2
+        if (imageUrl && Platform.OS === 'android' && imageUrl.includes('localhost')) {
+            imageUrl = imageUrl.replace('localhost', '10.0.2.2');
+        }
+
+        return (
+            <View className="bg-white p-4 mb-4 rounded-xl border border-gray-100 shadow-sm flex-row">
+
+                {/* 4. Conditionally render Image or Placeholder */}
+                {imageUrl ? (
+                    <Image
+                        source={{ uri: imageUrl }}
+                        className="w-24 h-24 rounded-lg mr-4 bg-gray-200"
+                        resizeMode="cover"
+                    />
+                ) : (
+                    <View className="w-24 h-24 bg-gray-200 rounded-lg mr-4 items-center justify-center">
+                        <Text className="text-gray-400 text-xs">No Image</Text>
+                    </View>
+                )}
+
+                <View className="flex-1 justify-between">
+                    <View>
+                        <Text className="text-lg font-bold text-gray-800" numberOfLines={1}>
+                            {item.title}
+                        </Text>
+                        <Text className="text-blue-600 font-bold mt-1">
+                            {item.price} RON
+                        </Text>
+                        <Text className="text-gray-500 text-xs mt-1" numberOfLines={1}>
+                            {item.address}
+                        </Text>
+                    </View>
+
+                    <View className="flex-row justify-end mt-2 gap-3">
+                        <TouchableOpacity onPress={() => router.push({
+                            pathname: '/(landlord)/create-update-property',
+                            params: { id: item.id }
+                        })}>
+                            <Text className="text-blue-500 font-medium">Edit</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity onPress={() => handleDelete(item.id)}>
+                            <Text className="text-red-500 font-medium">Delete</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
-
-                <View className="flex-row justify-end mt-2 gap-3">
-                    <TouchableOpacity onPress={() => router.push({
-                        pathname: '/(landlord)/create-update-property',
-                        params: { id: item.id }
-                    })}>
-                        <Text className="text-blue-500 font-medium">Edit</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity onPress={() => handleDelete(item.id)}>
-                        <Text className="text-red-500 font-medium">Delete</Text>
-                    </TouchableOpacity>
-                </View>
             </View>
-        </View>
-    );
+        );
+    };
 
     return (
         <SafeAreaView className="flex-1 bg-white p-5">
