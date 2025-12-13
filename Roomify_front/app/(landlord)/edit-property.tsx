@@ -14,11 +14,11 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 
-import { Header, Button, Card } from '@/components/ui';
+import { Header, Button, Card, ImageCarousel } from '@/components/ui';
 import { Blue, Neutral, Typography, Spacing, BorderRadius } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { usePropertyMutations } from '@/hooks/useApi';
-import { PropertiesApi } from '@/services/api';
+import { PropertiesApi, getImageUrl } from '@/services/api';
 
 const LAYOUT_TYPES = ['DECOMANDAT', 'SEMIDECOMANDAT', 'NEDECOMANDAT'];
 const TENANT_TYPES = ['Student', 'Students (Coliving)', 'Professional', 'Family', 'Family with Kids', 'Couple'];
@@ -453,6 +453,20 @@ export default function EditPropertyScreen() {
                 <Card style={styles.section}>
                     <Text style={styles.sectionTitle}>Images * (1-7 photos)</Text>
                     
+                    {/* Preview Gallery */}
+                    {images.length > 0 && (
+                        <View style={styles.previewSection}>
+                            <Text style={styles.previewLabel}>Preview:</Text>
+                            <ImageCarousel
+                                images={images.map(img => 'id' in img ? getImageUrl(img.url) : img.uri)}
+                                height={250}
+                                showPageIndicator={true}
+                                enableZoom={true}
+                            />
+                        </View>
+                    )}
+                    
+                    <Text style={styles.editLabel}>Edit Images (drag to reorder):</Text>
                     <View style={styles.imagesGrid}>
                         {images.map((img, index) => (
                             <View key={index} style={styles.imageContainer}>
@@ -625,6 +639,21 @@ const styles = StyleSheet.create({
     },
     tenantTypeTextActive: {
         color: '#FFFFFF',
+    },
+    previewSection: {
+        marginBottom: Spacing.md,
+    },
+    previewLabel: {
+        fontSize: Typography.size.sm,
+        fontWeight: Typography.weight.semibold,
+        color: Neutral[700],
+        marginBottom: Spacing.xs,
+    },
+    editLabel: {
+        fontSize: Typography.size.sm,
+        fontWeight: Typography.weight.medium,
+        color: Neutral[600],
+        marginBottom: Spacing.xs,
     },
     imagesGrid: {
         flexDirection: 'row',

@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Alert, ActivityIndicator, RefreshControl, Platform } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, ActivityIndicator, RefreshControl, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-import { Header, Card, Button, EmptyState } from '@/components/ui';
+import { Header, Card, Button, EmptyState, ImageCarousel } from '@/components/ui';
 import { Blue, Neutral, Typography, Spacing, BorderRadius, Shadows } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useMyListings, usePropertyMutations } from '@/hooks/useApi';
@@ -159,11 +159,20 @@ export default function LandlordPropertiesScreen() {
         }
     };
     
-    const renderProperty = ({ item }: { item: typeof MOCK_PROPERTIES[0] }) => (
-        <Card shadow="md" style={styles.propertyCard}>
-            <Image source={{ uri: getImageUrl(item.images?.[0]) }} style={styles.propertyImage} />
-            
-            <View style={styles.propertyContent}>
+    const renderProperty = ({ item }: { item: typeof MOCK_PROPERTIES[0] }) => {
+        // Map all images to full URLs
+        const imageUrls = (item.images || []).map(img => getImageUrl(img)).filter(url => url);
+        
+        return (
+            <Card shadow="md" style={styles.propertyCard}>
+                <ImageCarousel 
+                    images={imageUrls}
+                    height={200}
+                    showPageIndicator={true}
+                    enableZoom={true}
+                />
+                
+                <View style={styles.propertyContent}>
                 <View style={styles.propertyHeader}>
                     <View style={styles.priceContainer}>
                         <Text style={styles.price}>${item.price}</Text>
@@ -229,7 +238,8 @@ export default function LandlordPropertiesScreen() {
                 </View>
             </View>
         </Card>
-    );
+        );
+    };
 
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
