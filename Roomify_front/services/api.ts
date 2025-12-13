@@ -8,12 +8,12 @@ import { Platform } from 'react-native';
 // Web uses localhost, mobile uses host IP from env
 const getApiUrl = () => {
   const envUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8080';
-  
+
   // On web, always use localhost
   if (Platform.OS === 'web') {
     return 'http://localhost:8080';
   }
-  
+
   // On mobile (iOS/Android), use the env variable (should be host machine IP)
   return envUrl;
 };
@@ -107,12 +107,12 @@ export interface Message {
 // ============================================
 
 async function fetchApi<T>(
-  endpoint: string,
-  options: RequestInit = {},
-  accessToken?: string
+    endpoint: string,
+    options: RequestInit = {},
+    accessToken?: string
 ): Promise<ApiResponse<T>> {
   const url = `${API_URL}${endpoint}`;
-  
+
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
     ...options.headers,
@@ -163,26 +163,26 @@ export const AuthApi = {
    * Authorize user and sync with backend
    */
   authorize: (accessToken: string) =>
-    fetchApi<User>('/user/authorize', { method: 'POST' }, accessToken),
+      fetchApi<User>('/user/authorize', { method: 'POST' }, accessToken),
 
   /**
    * Get current user profile
    */
   getProfile: (accessToken: string) =>
-    fetchApi<User>('/user/profile', { method: 'GET' }, accessToken),
+      fetchApi<User>('/user/profile', { method: 'GET' }, accessToken),
 
   /**
    * Update user profile
    */
   updateProfile: (accessToken: string, data: Partial<User>) =>
-    fetchApi<User>(
-      '/user/profile',
-      {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      },
-      accessToken
-    ),
+      fetchApi<User>(
+          '/user/profile',
+          {
+            method: 'PUT',
+            body: JSON.stringify(data),
+          },
+          accessToken
+      ),
 };
 
 // ============================================
@@ -195,9 +195,9 @@ export const PropertiesApi = {
    */
   getAll: (accessToken: string, page: number = 0, size: number = 10) => {
     return fetchApi<{content: Property[], totalPages: number, totalElements: number}>(
-      `/api/properties?page=${page}&size=${size}`,
-      { method: 'GET' },
-      accessToken
+        `/api/properties?page=${page}&size=${size}`,
+        { method: 'GET' },
+        accessToken
     );
   },
 
@@ -222,10 +222,10 @@ export const PropertiesApi = {
     console.log('[PropertiesApi.create] Property data:', propertyData);
     console.log('[PropertiesApi.create] Images:', images.length);
     console.log('[PropertiesApi.create] Token present:', !!accessToken);
-    
+
     const formData = new FormData();
     formData.append('data', JSON.stringify(propertyData));
-    
+
     // Append images - works for both File objects (web) and {uri, type, name} (native)
     images.forEach((image, index) => {
       console.log(`[PropertiesApi.create] Appending image ${index}:`, JSON.stringify(image));
@@ -234,7 +234,7 @@ export const PropertiesApi = {
 
     const url = `${API_URL}/api/properties`;
     console.log('[PropertiesApi.create] Request URL:', url);
-    
+
     try {
       console.log('[PropertiesApi.create] Sending POST request...');
       const response = await fetch(url, {
@@ -247,7 +247,7 @@ export const PropertiesApi = {
 
       console.log('[PropertiesApi.create] Response status:', response.status);
       const status = response.status;
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error('[PropertiesApi.create] Error response:', errorText);
@@ -270,14 +270,20 @@ export const PropertiesApi = {
 
   /**
    * Update property (landlord only)
+   * FIXED: Now correctly handles image arrays for React Native
    */
-  update: async (accessToken: string, id: number, propertyData: any, images?: File[]) => {
+  update: async (accessToken: string, id: number, propertyData: any, images?: Array<File | { uri: string; type: string; name: string }>) => {
     const formData = new FormData();
     formData.append('data', JSON.stringify(propertyData));
-    
+
+    // FIX APPLIED HERE:
+    // We now use the same logic as 'create' to ensure React Native
+    // serializes the image object correctly in the multipart request.
     if (images && images.length > 0) {
       images.forEach((image) => {
-        formData.append('images', image);
+        // Casting to 'any' is necessary because FormData types in RN are loose
+        // but TypeScript expects standard Web 'Blob' types.
+        formData.append('images', image as any);
       });
     }
 
@@ -287,6 +293,8 @@ export const PropertiesApi = {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${accessToken}`,
+          // Note: Content-Type header is purposefully omitted so fetch
+          // can set the correct multipart boundary automatically.
         },
         body: formData,
       });
@@ -312,17 +320,17 @@ export const PropertiesApi = {
    * Delete property (landlord only)
    */
   delete: (accessToken: string, id: number) =>
-    fetchApi<void>(`/api/properties/${id}`, { method: 'DELETE' }, accessToken),
+      fetchApi<void>(`/api/properties/${id}`, { method: 'DELETE' }, accessToken),
 
   /**
    * Get landlord's own properties
    */
   getMyListings: (accessToken: string, page: number = 0, size: number = 10) =>
-    fetchApi<{content: Property[], totalPages: number, totalElements: number}>(
-      `/api/properties/my?page=${page}&size=${size}`,
-      { method: 'GET' },
-      accessToken
-    ),
+      fetchApi<{content: Property[], totalPages: number, totalElements: number}>(
+          `/api/properties/my?page=${page}&size=${size}`,
+          { method: 'GET' },
+          accessToken
+      ),
 };
 
 // ============================================
@@ -334,27 +342,27 @@ export const InteractionsApi = {
    * Express interest in a property (normal user)
    */
   expressInterest: (accessToken: string, propertyId: string) =>
-    fetchApi<void>(
-      '/interactions/interest',
-      {
-        method: 'POST',
-        body: JSON.stringify({ propertyId }),
-      },
-      accessToken
-    ),
+      fetchApi<void>(
+          '/interactions/interest',
+          {
+            method: 'POST',
+            body: JSON.stringify({ propertyId }),
+          },
+          accessToken
+      ),
 
   /**
    * Pass on a property (not interested)
    */
   pass: (accessToken: string, propertyId: string) =>
-    fetchApi<void>(
-      '/interactions/pass',
-      {
-        method: 'POST',
-        body: JSON.stringify({ propertyId }),
-      },
-      accessToken
-    ),
+      fetchApi<void>(
+          '/interactions/pass',
+          {
+            method: 'POST',
+            body: JSON.stringify({ propertyId }),
+          },
+          accessToken
+      ),
 
   /**
    * Get interested users for landlord's property
@@ -368,27 +376,27 @@ export const InteractionsApi = {
    * Accept a user (landlord) - creates a match
    */
   acceptUser: (accessToken: string, userId: string, propertyId: string) =>
-    fetchApi<Conversation>(
-      '/interactions/accept',
-      {
-        method: 'POST',
-        body: JSON.stringify({ userId, propertyId }),
-      },
-      accessToken
-    ),
+      fetchApi<Conversation>(
+          '/interactions/accept',
+          {
+            method: 'POST',
+            body: JSON.stringify({ userId, propertyId }),
+          },
+          accessToken
+      ),
 
   /**
    * Decline a user (landlord)
    */
   declineUser: (accessToken: string, userId: string, propertyId: string) =>
-    fetchApi<void>(
-      '/interactions/decline',
-      {
-        method: 'POST',
-        body: JSON.stringify({ userId, propertyId }),
-      },
-      accessToken
-    ),
+      fetchApi<void>(
+          '/interactions/decline',
+          {
+            method: 'POST',
+            body: JSON.stringify({ userId, propertyId }),
+          },
+          accessToken
+      ),
 };
 
 // ============================================
@@ -408,26 +416,26 @@ export const ConversationsApi = {
    * Get conversation by ID
    */
   getById: (accessToken: string, id: string) =>
-    fetchApi<Conversation>(`/conversations/${id}`, { method: 'GET' }, accessToken),
+      fetchApi<Conversation>(`/conversations/${id}`, { method: 'GET' }, accessToken),
 
   /**
    * Get messages for a conversation
    */
   getMessages: (accessToken: string, conversationId: string) =>
-    fetchApi<Message[]>(`/conversations/${conversationId}/messages`, { method: 'GET' }, accessToken),
+      fetchApi<Message[]>(`/conversations/${conversationId}/messages`, { method: 'GET' }, accessToken),
 
   /**
    * Send a message
    */
   sendMessage: (accessToken: string, conversationId: string, content: string) =>
-    fetchApi<Message>(
-      `/conversations/${conversationId}/messages`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ content }),
-      },
-      accessToken
-    ),
+      fetchApi<Message>(
+          `/conversations/${conversationId}/messages`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ content }),
+          },
+          accessToken
+      ),
 };
 
 // ============================================
@@ -439,26 +447,26 @@ export const AdminApi = {
    * Get all reports
    */
   getReports: (accessToken: string) =>
-    fetchApi<unknown[]>('/admin/reports', { method: 'GET' }, accessToken),
+      fetchApi<unknown[]>('/admin/reports', { method: 'GET' }, accessToken),
 
   /**
    * Get all users (for role management)
    */
   getUsers: (accessToken: string) =>
-    fetchApi<User[]>('/admin/users', { method: 'GET' }, accessToken),
+      fetchApi<User[]>('/admin/users', { method: 'GET' }, accessToken),
 
   /**
    * Update user role
    */
   updateUserRole: (accessToken: string, userId: string, roleName: string) =>
-    fetchApi<User>(
-      `/admin/users/${userId}/role`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ roleName }),
-      },
-      accessToken
-    ),
+      fetchApi<User>(
+          `/admin/users/${userId}/role`,
+          {
+            method: 'PUT',
+            body: JSON.stringify({ roleName }),
+          },
+          accessToken
+      ),
 };
 
 // Default export for convenience

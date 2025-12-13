@@ -14,11 +14,13 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 
-import { Header, Button, Card, ImageCarousel } from '@/components/ui';
+import { Header, Button, Card, ImageCarousel, Snackbar } from '@/components/ui';
 import { Blue, Neutral, Typography, Spacing, BorderRadius } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { usePropertyMutations } from '@/hooks/useApi';
 import { PropertiesApi, getImageUrl } from '@/services/api';
+
+const ErrorColor = '#DC2626';
 
 const LAYOUT_TYPES = ['DECOMANDAT', 'SEMIDECOMANDAT', 'NEDECOMANDAT'];
 const TENANT_TYPES = ['Student', 'Students (Coliving)', 'Professional', 'Family', 'Family with Kids', 'Couple'];
@@ -42,7 +44,7 @@ export default function EditPropertyScreen() {
     const { user, getAccessToken } = useAuth();
     const params = useLocalSearchParams();
     const propertyId = params.id as string;
-    
+
     const { updateProperty, isLoading, error } = usePropertyMutations();
 
     const [formData, setFormData] = useState({
@@ -62,14 +64,13 @@ export default function EditPropertyScreen() {
     const [images, setImages] = useState<ImageItem[]>([]);
     const [deletedImageIds, setDeletedImageIds] = useState<number[]>([]);
     const [loadingProperty, setLoadingProperty] = useState(true);
+    const [errors, setErrors] = useState<Record<string, string>>({});
+    const [snackbar, setSnackbar] = useState({ visible: false, message: '', type: 'info' as 'success' | 'error' | 'info' });
 
-    // Load property data
     useEffect(() => {
         const loadProperty = async () => {
-            // Guard against invalid propertyId
             const parsedId = parseInt(propertyId);
             if (!propertyId || Number.isNaN(parsedId)) {
-                console.error('Invalid propertyId:', propertyId);
                 Alert.alert('Error', 'Invalid property ID');
                 router.back();
                 return;
@@ -118,11 +119,30 @@ export default function EditPropertyScreen() {
 
     const updateField = (field: string, value: any) => {
         setFormData(prev => ({ ...prev, [field]: value }));
+        if (errors[field]) {
+            setErrors(prev => ({ ...prev, [field]: '' }));
+        }
     };
+
+    // --- NEW: INPUT SANITIZATION HANDLERS (Same as AddProperty) ---
+    const handleIntegerChange = (field: string, text: string) => {
+        const cleaned = text.replace(/[^0-9]/g, '');
+        updateField(field, cleaned);
+    };
+
+    const handleDecimalChange = (field: string, text: string) => {
+        let cleaned = text.replace(/[^0-9.]/g, '');
+        const parts = cleaned.split('.');
+        if (parts.length > 2) {
+            cleaned = parts[0] + '.' + parts.slice(1).join('');
+        }
+        updateField(field, cleaned);
+    };
+    // ----------------------------------------------------------------
 
     const pickImages = async () => {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        
+
         if (status !== 'granted') {
             Alert.alert('Permission Required', 'Please allow access to your photo library.');
             return;
@@ -147,23 +167,23 @@ export default function EditPropertyScreen() {
                 isNew: true,
             }));
             setImages(prev => [...prev, ...newImages]);
+
+            if (errors.images) {
+                setErrors(prev => ({ ...prev, images: '' }));
+            }
         }
     };
 
     const removeImage = (index: number) => {
         const imageToRemove = images[index];
-        
-        // If it's an existing image (has id), mark it for deletion
         if ('id' in imageToRemove) {
             setDeletedImageIds(prev => [...prev, imageToRemove.id]);
         }
-        
         setImages(prev => prev.filter((_, i) => i !== index));
     };
 
     const moveImage = (fromIndex: number, toIndex: number) => {
         if (toIndex < 0 || toIndex >= images.length) return;
-        
         const newImages = [...images];
         const [movedItem] = newImages.splice(fromIndex, 1);
         newImages.splice(toIndex, 0, movedItem);
@@ -179,44 +199,39 @@ export default function EditPropertyScreen() {
         }));
     };
 
+    const validateForm = () => {
+        const newErrors: Record<string, string> = {};
+        let isValid = true;
+
+        if (!formData.title.trim()) { newErrors.title = 'Property title is required'; isValid = false; }
+        if (!formData.price || parseFloat(formData.price) <= 0) { newErrors.price = 'Valid price is required'; isValid = false; }
+        if (!formData.surface || parseFloat(formData.surface) <= 0) { newErrors.surface = 'Valid surface area is required'; isValid = false; }
+        if (!formData.address.trim()) { newErrors.address = 'Address is required'; isValid = false; }
+        if (!formData.numberOfRooms || parseInt(formData.numberOfRooms) <= 0) { newErrors.numberOfRooms = 'Number of rooms is required'; isValid = false; }
+        if (images.length === 0) { newErrors.images = 'At least one image is required'; isValid = false; }
+
+        setErrors(newErrors);
+        return isValid;
+    };
+
     const handleSubmit = async () => {
-        // Validation
-        if (!formData.title.trim()) {
-            Alert.alert('Error', 'Please enter a property title');
-            return;
-        }
-        if (!formData.price || parseFloat(formData.price) <= 0) {
-            Alert.alert('Error', 'Please enter a valid price');
-            return;
-        }
-        if (!formData.surface || parseFloat(formData.surface) <= 0) {
-            Alert.alert('Error', 'Please enter a valid surface area');
-            return;
-        }
-        if (!formData.address.trim()) {
-            Alert.alert('Error', 'Please enter an address');
-            return;
-        }
-        if (!formData.numberOfRooms || parseInt(formData.numberOfRooms) <= 0) {
-            Alert.alert('Error', 'Please enter number of rooms');
-            return;
-        }
-        if (images.length === 0) {
-            Alert.alert('Error', 'Please add at least one image');
+        if (!validateForm()) {
+            setSnackbar({ visible: true, message: 'Please fix the errors above', type: 'error' });
             return;
         }
 
         try {
-            // Build orderedIdentifiers array
-            const orderedIdentifiers = images.map((img, index) => {
+            let newImageCounter = 0;
+            const orderedIdentifiers = images.map((img) => {
                 if ('id' in img) {
                     return `ID_${img.id}`;
                 } else {
-                    return `NEW_${index}`;
+                    const identifier = `NEW_${newImageCounter}`;
+                    newImageCounter++;
+                    return identifier;
                 }
             });
 
-            // Extract new images
             const newImageFiles = images
                 .filter((img): img is NewImage => 'isNew' in img)
                 .map((img, index) => ({
@@ -248,33 +263,27 @@ export default function EditPropertyScreen() {
             );
 
             if (result) {
-                Alert.alert('Success', 'Property updated successfully!', [
-                    { text: 'OK', onPress: () => {
-                        if (router.canGoBack()) {
-                            router.back();
-                        } else {
-                            router.replace('/(landlord)');
-                        }
-                    }}
-                ]);
+                setSnackbar({ visible: true, message: 'Property updated successfully!', type: 'success' });
+                setTimeout(() => {
+                    if (router.canGoBack()) {
+                        router.back();
+                    } else {
+                        router.replace('/(landlord)');
+                    }
+                }, 1500);
             } else if (error) {
-                Alert.alert('Error', error);
+                setSnackbar({ visible: true, message: error, type: 'error' });
             }
         } catch (err) {
-            Alert.alert('Error', 'Failed to update property. Please try again.');
             console.error(err);
+            setSnackbar({ visible: true, message: 'Failed to update property. Please try again.', type: 'error' });
         }
     };
 
     if (loadingProperty) {
         return (
             <View style={[styles.container, { paddingTop: insets.top }]}>
-                <Header
-                    title="Edit Property"
-                    user={user}
-                    showBackButton
-                    onBackPress={() => router.back()}
-                />
+                <Header title="Edit Property" user={user} showBackButton onBackPress={() => router.back()} />
                 <View style={styles.loadingContainer}>
                     <Text style={styles.loadingText}>Loading property...</Text>
                 </View>
@@ -284,56 +293,56 @@ export default function EditPropertyScreen() {
 
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
-            <Header
-                title="Edit Property"
-                user={user}
-                showBackButton
-                onBackPress={() => router.back()}
-            />
-
+            <Header title="Edit Property" user={user} showBackButton onBackPress={() => router.back()} />
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-                {/* Basic Info */}
                 <Card style={styles.section}>
                     <Text style={styles.sectionTitle}>Basic Information</Text>
-                    
+
                     <Text style={styles.label}>Title *</Text>
                     <TextInput
-                        style={styles.input}
+                        style={[styles.input, errors.title && styles.inputError]}
                         value={formData.title}
                         onChangeText={(text) => updateField('title', text)}
                         placeholder="e.g., Modern Downtown Apartment"
                         placeholderTextColor={Neutral[400]}
                     />
+                    {errors.title && <Text style={styles.errorText}>{errors.title}</Text>}
 
                     <Text style={styles.label}>Price (€/month) *</Text>
                     <TextInput
-                        style={styles.input}
+                        style={[styles.input, errors.price && styles.inputError]}
                         value={formData.price}
-                        onChangeText={(text) => updateField('price', text)}
+                        // FIX: Use decimal handler
+                        onChangeText={(text) => handleDecimalChange('price', text)}
                         placeholder="1200"
-                        keyboardType="numeric"
+                        keyboardType="decimal-pad"
                         placeholderTextColor={Neutral[400]}
                     />
+                    {errors.price && <Text style={styles.errorText}>{errors.price}</Text>}
 
                     <Text style={styles.label}>Surface (m²) *</Text>
                     <TextInput
-                        style={styles.input}
+                        style={[styles.input, errors.surface && styles.inputError]}
                         value={formData.surface}
-                        onChangeText={(text) => updateField('surface', text)}
+                        // FIX: Use decimal handler
+                        onChangeText={(text) => handleDecimalChange('surface', text)}
                         placeholder="85"
-                        keyboardType="numeric"
+                        keyboardType="decimal-pad"
                         placeholderTextColor={Neutral[400]}
                     />
+                    {errors.surface && <Text style={styles.errorText}>{errors.surface}</Text>}
 
                     <Text style={styles.label}>Address *</Text>
                     <TextInput
-                        style={styles.input}
+                        style={[styles.input, errors.address && styles.inputError]}
                         value={formData.address}
                         onChangeText={(text) => updateField('address', text)}
                         placeholder="Street, City, Country"
                         placeholderTextColor={Neutral[400]}
                     />
+                    {errors.address && <Text style={styles.errorText}>{errors.address}</Text>}
 
+                    {/* Description field remains unchanged */}
                     <Text style={styles.label}>Description</Text>
                     <TextInput
                         style={[styles.input, styles.textArea]}
@@ -346,20 +355,22 @@ export default function EditPropertyScreen() {
                     />
                 </Card>
 
-                {/* Property Details */}
                 <Card style={styles.section}>
                     <Text style={styles.sectionTitle}>Property Details</Text>
-                    
+
                     <Text style={styles.label}>Number of Rooms *</Text>
                     <TextInput
-                        style={styles.input}
+                        style={[styles.input, errors.numberOfRooms && styles.inputError]}
                         value={formData.numberOfRooms}
-                        onChangeText={(text) => updateField('numberOfRooms', text)}
+                        // FIX: Use integer handler
+                        onChangeText={(text) => handleIntegerChange('numberOfRooms', text)}
                         placeholder="2"
-                        keyboardType="numeric"
+                        keyboardType="number-pad"
                         placeholderTextColor={Neutral[400]}
                     />
+                    {errors.numberOfRooms && <Text style={styles.errorText}>{errors.numberOfRooms}</Text>}
 
+                    {/* Rest of the form remains unchanged (checkboxes, images, etc.) */}
                     <View style={styles.checkboxContainer}>
                         <TouchableOpacity
                             style={styles.checkbox}
@@ -379,18 +390,10 @@ export default function EditPropertyScreen() {
                         {LAYOUT_TYPES.map(type => (
                             <TouchableOpacity
                                 key={type}
-                                style={[
-                                    styles.optionButton,
-                                    formData.layoutType === type && styles.optionButtonActive
-                                ]}
+                                style={[styles.optionButton, formData.layoutType === type && styles.optionButtonActive]}
                                 onPress={() => updateField('layoutType', type)}
                             >
-                                <Text style={[
-                                    styles.optionButtonText,
-                                    formData.layoutType === type && styles.optionButtonTextActive
-                                ]}>
-                                    {type}
-                                </Text>
+                                <Text style={[styles.optionButtonText, formData.layoutType === type && styles.optionButtonTextActive]}>{type}</Text>
                             </TouchableOpacity>
                         ))}
                     </View>
@@ -432,28 +435,18 @@ export default function EditPropertyScreen() {
                         {TENANT_TYPES.map(type => (
                             <TouchableOpacity
                                 key={type}
-                                style={[
-                                    styles.tenantTypeButton,
-                                    formData.preferredTenants.includes(type) && styles.tenantTypeButtonActive
-                                ]}
+                                style={[styles.tenantTypeButton, formData.preferredTenants.includes(type) && styles.tenantTypeButtonActive]}
                                 onPress={() => toggleTenantType(type)}
                             >
-                                <Text style={[
-                                    styles.tenantTypeText,
-                                    formData.preferredTenants.includes(type) && styles.tenantTypeTextActive
-                                ]}>
-                                    {type}
-                                </Text>
+                                <Text style={[styles.tenantTypeText, formData.preferredTenants.includes(type) && styles.tenantTypeTextActive]}>{type}</Text>
                             </TouchableOpacity>
                         ))}
                     </View>
                 </Card>
 
-                {/* Images */}
-                <Card style={styles.section}>
+                {/* Images Section */}
+                <Card style={[styles.section, errors.images && styles.sectionError]}>
                     <Text style={styles.sectionTitle}>Images * (1-7 photos)</Text>
-                    
-                    {/* Preview Gallery */}
                     {images.length > 0 && (
                         <View style={styles.previewSection}>
                             <Text style={styles.previewLabel}>Preview:</Text>
@@ -465,55 +458,39 @@ export default function EditPropertyScreen() {
                             />
                         </View>
                     )}
-                    
                     <Text style={styles.editLabel}>Edit Images (drag to reorder):</Text>
                     <View style={styles.imagesGrid}>
                         {images.map((img, index) => (
                             <View key={index} style={styles.imageContainer}>
-                                <Image 
-                                    source={{ uri: 'id' in img ? img.url : img.uri }} 
-                                    style={styles.image} 
-                                />
-                                <TouchableOpacity
-                                    style={styles.removeImageButton}
-                                    onPress={() => removeImage(index)}
-                                >
+                                <Image source={{ uri: 'id' in img ? img.url : img.uri }} style={styles.image} />
+                                <TouchableOpacity style={styles.removeImageButton} onPress={() => removeImage(index)}>
                                     <Ionicons name="close-circle" size={24} color={Neutral[700]} />
                                 </TouchableOpacity>
-                                
-                                {/* Reorder buttons */}
                                 <View style={styles.reorderButtons}>
                                     {index > 0 && (
-                                        <TouchableOpacity
-                                            style={styles.reorderButton}
-                                            onPress={() => moveImage(index, index - 1)}
-                                        >
+                                        <TouchableOpacity style={styles.reorderButton} onPress={() => moveImage(index, index - 1)}>
                                             <Ionicons name="chevron-back" size={16} color="#FFF" />
                                         </TouchableOpacity>
                                     )}
                                     {index < images.length - 1 && (
-                                        <TouchableOpacity
-                                            style={styles.reorderButton}
-                                            onPress={() => moveImage(index, index + 1)}
-                                        >
+                                        <TouchableOpacity style={styles.reorderButton} onPress={() => moveImage(index, index + 1)}>
                                             <Ionicons name="chevron-forward" size={16} color="#FFF" />
                                         </TouchableOpacity>
                                     )}
                                 </View>
-                                
                                 <View style={styles.orderBadge}>
                                     <Text style={styles.orderText}>{index + 1}</Text>
                                 </View>
                             </View>
                         ))}
-                        
                         {images.length < 7 && (
-                            <TouchableOpacity style={styles.addImageButton} onPress={pickImages}>
-                                <Ionicons name="add" size={32} color={Blue[600]} />
-                                <Text style={styles.addImageText}>Add Photo</Text>
+                            <TouchableOpacity style={[styles.addImageButton, errors.images && styles.addImageButtonError]} onPress={pickImages}>
+                                <Ionicons name="add" size={32} color={errors.images ? ErrorColor : Blue[600]} />
+                                <Text style={[styles.addImageText, errors.images && { color: ErrorColor }]}>Add Photo</Text>
                             </TouchableOpacity>
                         )}
                     </View>
+                    {errors.images && <Text style={styles.errorText}>{errors.images}</Text>}
                 </Card>
 
                 <View style={styles.actions}>
@@ -527,11 +504,20 @@ export default function EditPropertyScreen() {
                     />
                 </View>
             </ScrollView>
+
+            <Snackbar
+                visible={snackbar.visible}
+                message={snackbar.message}
+                type={snackbar.type}
+                onDismiss={() => setSnackbar(prev => ({ ...prev, visible: false }))}
+                duration={3000}
+            />
         </View>
     );
 }
 
 const styles = StyleSheet.create({
+    // (Styles remain exactly as they were in the previous file)
     container: {
         flex: 1,
         backgroundColor: Neutral[50],
@@ -551,6 +537,10 @@ const styles = StyleSheet.create({
     section: {
         margin: Spacing.base,
         padding: Spacing.md,
+    },
+    sectionError: {
+        borderColor: ErrorColor,
+        borderWidth: 1,
     },
     sectionTitle: {
         fontSize: Typography.size.xl,
@@ -573,6 +563,16 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: Neutral[900],
         backgroundColor: '#FFFFFF',
+    },
+    inputError: {
+        borderColor: ErrorColor,
+        backgroundColor: '#FEF2F2',
+    },
+    errorText: {
+        color: ErrorColor,
+        fontSize: Typography.size.sm,
+        marginTop: 4,
+        marginLeft: 2,
     },
     textArea: {
         height: 100,
@@ -719,6 +719,10 @@ const styles = StyleSheet.create({
         borderRadius: BorderRadius.md,
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    addImageButtonError: {
+        borderColor: ErrorColor,
+        backgroundColor: '#FEF2F2',
     },
     addImageText: {
         fontSize: Typography.size.sm,

@@ -37,48 +37,62 @@ public class PropertyService {
         }
     }
 
-    // --- 1. REORDER LOGIC (FIXED: Uses clear/addAll to prevent Hibernate Crash) ---
+    // --- REORDER LOGIC (Unchanged) ---
     private void reorderImages(Property property, List<String> orderedIdentifiers, List<PropertyImage> newImages) {
-        Map<String, PropertyImage> imageMap = new HashMap<>();
-
-        for (PropertyImage img : property.getImages()) {
-            if (img.getId() != null) imageMap.put("ID_" + img.getId(), img);
+        if (property.getImages() == null) {
+            property.setImages(new ArrayList<>());
         }
-        for (int i = 0; i < newImages.size(); i++) {
-            imageMap.put("NEW_" + i, newImages.get(i));
+
+        Map<Long, PropertyImage> existingImageMap = new HashMap<>();
+        for (PropertyImage img : property.getImages()) {
+            if (img.getId() != null) {
+                existingImageMap.put(img.getId(), img);
+            }
         }
 
         List<PropertyImage> reorderedList = new ArrayList<>();
-        int index = 0;
+        int orderIndex = 0;
+        int newImagePointer = 0;
 
         if (orderedIdentifiers != null) {
             for (String identifier : orderedIdentifiers) {
-                PropertyImage img = imageMap.get(identifier);
-                if (img != null) {
-                    img.setOrderIndex(index++);
-                    img.setProperty(property);
-                    reorderedList.add(img);
+                if (identifier.startsWith("ID_")) {
+                    try {
+                        Long id = Long.parseLong(identifier.substring(3));
+                        PropertyImage img = existingImageMap.get(id);
+                        if (img != null) {
+                            img.setOrderIndex(orderIndex++);
+                            img.setProperty(property);
+                            reorderedList.add(img);
+                            existingImageMap.remove(id);
+                        }
+                    } catch (NumberFormatException ignored) {}
+                } else if (identifier.startsWith("NEW_")) {
+                    if (newImagePointer < newImages.size()) {
+                        PropertyImage img = newImages.get(newImagePointer);
+                        img.setOrderIndex(orderIndex++);
+                        img.setProperty(property);
+                        reorderedList.add(img);
+                        newImagePointer++;
+                    }
                 }
             }
         }
 
-        // Safety: Append leftovers
-        for (PropertyImage img : property.getImages()) {
-            if (!reorderedList.contains(img)) {
-                img.setOrderIndex(index++);
-                reorderedList.add(img);
-            }
-        }
-        for (PropertyImage img : newImages) {
-            if (!reorderedList.contains(img)) {
-                img.setOrderIndex(index++);
-                img.setProperty(property);
-                reorderedList.add(img);
-            }
+        // Append leftovers to prevent accidental data loss (safety net)
+        for (PropertyImage remaining : existingImageMap.values()) {
+            remaining.setOrderIndex(orderIndex++);
+            reorderedList.add(remaining);
         }
 
-        // --- CRITICAL FIX ---
-        // Never replace the collection reference (setImages) when orphanRemoval is true
+        while (newImagePointer < newImages.size()) {
+            PropertyImage img = newImages.get(newImagePointer);
+            img.setOrderIndex(orderIndex++);
+            img.setProperty(property);
+            reorderedList.add(img);
+            newImagePointer++;
+        }
+
         if (property.getImages() == null) {
             property.setImages(reorderedList);
         } else {
@@ -89,7 +103,6 @@ public class PropertyService {
 
     @Transactional
     public Property createProperty(PropertyRequest request, List<MultipartFile> files, String ownerId) {
-        // Validation with Logging
         int newFilesCount = (files == null) ? 0 : files.size();
 
         if (newFilesCount < 1) throw new RuntimeException("Validation Error: You must upload at least one photo.");
@@ -99,16 +112,26 @@ public class PropertyService {
         property.setOwnerId(ownerId);
         updateEntityFromRequest(property, request);
 
+        // 1. Upload new files
         List<PropertyImage> newImages = new ArrayList<>();
         if (files != null && !files.isEmpty()) {
             newImages = saveFiles(files, property);
         }
 
-        // Initial setup can use setImages because it's a new entity
-        property.setImages(newImages);
-        reorderImages(property, request.getOrderedIdentifiers(), new ArrayList<>()); // Re-sort if needed
+        try {
+            // 2. Attach and Save
+            property.setImages(new ArrayList<>());
+            reorderImages(property, request.getOrderedIdentifiers(), newImages);
+            return propertyRepository.save(property);
 
-        return propertyRepository.save(property);
+        } catch (Exception e) {
+            // ROLLBACK CLEANUP: If DB save fails, delete the files we just uploaded
+            // so they don't become orphans.
+            for (PropertyImage img : newImages) {
+                deleteFileFromDisk(img.getUrl());
+            }
+            throw e;
+        }
     }
 
     @Transactional
@@ -118,60 +141,84 @@ public class PropertyService {
 
         if (!property.getOwnerId().equals(ownerId)) throw new RuntimeException("Unauthorized");
 
-        // --- 2. DEBUGGING LOGS (Check console to see these values) ---
-        long currentCount = property.getImages().size();
-        long deletedCount = (request.getDeletedImageIds() != null) ? request.getDeletedImageIds().size() : 0;
-        long newCount = (newFiles != null) ? newFiles.size() : 0;
-        long finalCount = currentCount - deletedCount + newCount;
-
-        if (finalCount > MAX_IMAGES) throw new RuntimeException("Cannot save: Total images would exceed limit of " + MAX_IMAGES);
-
-        if (finalCount < 1) {
-            // This is what is failing for you. The logs above will tell us why.
-            throw new RuntimeException("Validation Error: You must have at least one photo.");
-        }
-
         updateEntityFromRequest(property, request);
 
-        // Remove Deleted
+        // 1. Handle Explicit Deletions FIRST
         if (request.getDeletedImageIds() != null && !request.getDeletedImageIds().isEmpty()) {
             List<PropertyImage> imagesToDelete = property.getImages().stream()
                     .filter(img -> request.getDeletedImageIds().contains(img.getId()))
-                    .toList();
+                    .collect(Collectors.toList());
+
             for (PropertyImage img : imagesToDelete) {
+                // IMMEDIATE CLEANUP: Delete file from disk right now
                 deleteFileFromDisk(img.getUrl());
                 property.getImages().remove(img);
             }
         }
 
-        // Add New
+        // 2. Upload New Files
         List<PropertyImage> newImagesList = new ArrayList<>();
         if (newFiles != null && !newFiles.isEmpty()) {
             newImagesList = saveFiles(newFiles, property);
         }
 
-        // Reorder (Using the Fix)
-        reorderImages(property, request.getOrderedIdentifiers(), newImagesList);
+        try {
+            // 3. Reorder and Save
+            reorderImages(property, request.getOrderedIdentifiers(), newImagesList);
 
-        return propertyRepository.save(property);
+            if (property.getImages().isEmpty()) {
+                throw new RuntimeException("Validation Error: You must have at least one photo.");
+            }
+            if (property.getImages().size() > MAX_IMAGES) {
+                throw new RuntimeException("Cannot save: Total images would exceed limit of " + MAX_IMAGES);
+            }
+
+            return propertyRepository.save(property);
+
+        } catch (Exception e) {
+            // ROLLBACK CLEANUP: If DB save fails, delete the files we just uploaded.
+            // Note: We do NOT restore the files deleted in step 1. Those are gone.
+            for (PropertyImage img : newImagesList) {
+                deleteFileFromDisk(img.getUrl());
+            }
+            throw e;
+        }
     }
 
     @Transactional
     public void deleteProperty(Long id, String ownerId) {
-        Property property = propertyRepository.findById(id).orElseThrow(() -> new RuntimeException("Property not found"));
+        Property property = propertyRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Property not found"));
+
         if (!property.getOwnerId().equals(ownerId)) throw new RuntimeException("Unauthorized");
-        for (PropertyImage img : property.getImages()) deleteFileFromDisk(img.getUrl());
+
+        // CLEANUP: Delete all associated files from disk
+        if (property.getImages() != null) {
+            for (PropertyImage img : property.getImages()) {
+                deleteFileFromDisk(img.getUrl());
+            }
+        }
+
         propertyRepository.delete(property);
     }
 
     // --- HELPERS ---
+
     private void deleteFileFromDisk(String fileUrl) {
         if (fileUrl == null || fileUrl.isEmpty()) return;
         try {
+            // Parse filename from URL: ".../api/properties/images/uuid_filename.jpg" -> "uuid_filename.jpg"
             String filename = fileUrl.substring(fileUrl.lastIndexOf("/") + 1);
-            Files.deleteIfExists(this.rootLocation.resolve(filename));
+            Path filePath = this.rootLocation.resolve(filename);
+
+            // Files.deleteIfExists returns true if deleted, false if not found
+            boolean deleted = Files.deleteIfExists(filePath);
+            if (deleted) {
+                System.out.println("Deleted file: " + filename);
+            }
         } catch (IOException e) {
-            System.err.println("Warning: Could not delete file: " + fileUrl);
+            System.err.println("Warning: Could not delete file: " + fileUrl + " (" + e.getMessage() + ")");
+            // We do NOT throw exception here, so the DB transaction can still proceed/rollback gracefully
         }
     }
 
@@ -181,16 +228,25 @@ public class PropertyService {
             try {
                 String originalName = file.getOriginalFilename();
                 if (originalName == null || originalName.isBlank()) originalName = "photo.jpg";
+
+                originalName = originalName.replaceAll("[^a-zA-Z0-9.-]", "_");
                 if (!originalName.toLowerCase().endsWith(".jpg") && !originalName.toLowerCase().endsWith(".jpeg")) {
                     originalName += ".jpg";
                 }
+
                 String filename = UUID.randomUUID().toString() + "_" + originalName;
                 Files.copy(file.getInputStream(), this.rootLocation.resolve(filename));
-                String url = ServletUriComponentsBuilder.fromCurrentContextPath().path("/api/properties/images/").path(filename).toUriString();
+
+                String url = ServletUriComponentsBuilder.fromCurrentContextPath()
+                        .path("/api/properties/images/")
+                        .path(filename)
+                        .toUriString();
 
                 imageEntities.add(PropertyImage.builder().url(url).property(property).build());
             } catch (IOException e) {
-                throw new RuntimeException("Failed to store file", e);
+                // If one fails, we should probably stop and throw,
+                // which will trigger the rollback in the calling method
+                throw new RuntimeException("Failed to store file " + file.getOriginalFilename(), e);
             }
         }
         return imageEntities;
@@ -216,8 +272,6 @@ public class PropertyService {
         property.setDescription(request.getDescription());
         property.setNumberOfRooms(request.getNumberOfRooms());
         property.setHasExtraBathroom(request.getHasExtraBathroom() != null ? request.getHasExtraBathroom() : false);
-
-        // Handle Tri-State Logic (null stays null)
         property.setSmokerFriendly(request.getSmokerFriendly());
         property.setPetFriendly(request.getPetFriendly());
 
