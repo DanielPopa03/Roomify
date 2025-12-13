@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { Text, TouchableOpacity, View, ActivityIndicator, StyleSheet, Image } from 'react-native';
+import { Text, TouchableOpacity, View, ActivityIndicator, StyleSheet, Image, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
@@ -17,6 +17,13 @@ export default function LoginScreen() {
       router.replace('/');
     }
   }, [isAuthenticated]);
+
+  // Redirect to token-setup on mobile if error about token
+  React.useEffect(() => {
+    if (Platform.OS !== 'web' && error && (error.message.includes('auth token') || error.message.includes('set up mobile'))) {
+      router.push('/token-setup');
+    }
+  }, [error]);
 
   const onLogin = async () => {
     try {

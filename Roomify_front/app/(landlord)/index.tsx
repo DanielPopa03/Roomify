@@ -8,6 +8,7 @@ import { Header, Card, Button, EmptyState } from '@/components/ui';
 import { Blue, Neutral, Typography, Spacing, BorderRadius, Shadows } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useMyListings, usePropertyMutations } from '@/hooks/useApi';
+import { getImageUrl } from '@/services/api';
 
 // Mock properties data (fallback)
 const MOCK_PROPERTIES = [
@@ -160,7 +161,7 @@ export default function LandlordPropertiesScreen() {
     
     const renderProperty = ({ item }: { item: typeof MOCK_PROPERTIES[0] }) => (
         <Card shadow="md" style={styles.propertyCard}>
-            <Image source={{ uri: item.images?.[0] }} style={styles.propertyImage} />
+            <Image source={{ uri: getImageUrl(item.images?.[0]) }} style={styles.propertyImage} />
             
             <View style={styles.propertyContent}>
                 <View style={styles.propertyHeader}>

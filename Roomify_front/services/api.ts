@@ -20,6 +20,17 @@ const getApiUrl = () => {
 
 const API_URL = getApiUrl();
 
+// Helper to get full image URL
+export const getImageUrl = (filename: string | undefined | null): string => {
+  if (!filename) return '';
+  // If it's already a full URL, return as is
+  if (filename.startsWith('http://') || filename.startsWith('https://')) {
+    return filename;
+  }
+  // Otherwise, construct the full URL
+  return `${API_URL}/api/properties/images/${filename}`;
+};
+
 // ============================================
 // TYPES
 // ============================================

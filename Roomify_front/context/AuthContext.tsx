@@ -207,14 +207,19 @@ function NativeAuthProvider({ children, domain, clientId }: {
   useEffect(() => {
     const loadToken = async () => {
       try {
+        // HARDCODED TOKEN FOR TESTING - Remove in production!
+        const HARDCODED_TOKEN = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkJvaE43NTlaaDBfdmktODVzclRHOCJ9.eyJpc3MiOiJodHRwczovL2Rldi1oeGpuamVlbjh0c3NmZ252LnVzLmF1dGgwLmNvbS8iLCJzdWIiOiJnb29nbGUtb2F1dGgyfDExMzc0NzM3MjMyMjQ4Mjc1MTM3OSIsImF1ZCI6WyJodHRwczovL3Jvb21pZnktYXBpIiwiaHR0cHM6Ly9kZXYtaHhqbmplZW44dHNzZmdudi51cy5hdXRoMC5jb20vdXNlcmluZm8iXSwiaWF0IjoxNzY1NTc4OTQxLCJleHAiOjE3NjU2NjUzNDEsInNjb3BlIjoib3BlbmlkIHByb2ZpbGUgZW1haWwiLCJhenAiOiJQUWx5S0U3ZHNDa3pBVGRyZmRDb3FOaHZxc2V5dW9VMyJ9.A2kyBBU4p_s1jljlDs7Vx_b2uO7JuwPf8zuXsR5V7cYSSyax9m3SKN7RKwTmZ9Ri5bahnJtGNKlaTU2qfal7QT7v1d_p3gNPGJZSRX4b0jaqaeqo7nv81hewRnv38K39Q2OB5TqVU6enQ5k5XAZ_RKnf2tuDGGPZ82em6vw8R18iLfiTn7DbQItw9u1eBU8Grofe24tEtO-oeLWzTgJk28a4eEpFLpkFAVPviX9ukERxIvRNdD_joHPvNZMrQKVajHGNTAAFpHfob5q6YWILLnh9EsbHrGxoiMWyHr50lt9Z_vtFE0763eSbeFCimL2tipNeoHcDK-SrqvG-cmi0uA';
+        
         const { default: AsyncStorage } = await import('@react-native-async-storage/async-storage');
         const savedToken = await AsyncStorage.getItem('mobile_auth_token');
         
-        if (savedToken) {
-          console.log('[NativeAuthProvider] Loaded token from storage');
-          setAccessToken(savedToken);
+        const tokenToUse = savedToken || HARDCODED_TOKEN;
+        
+        if (tokenToUse) {
+          console.log('[NativeAuthProvider] Using token for auth');
+          setAccessToken(tokenToUse);
           setUser({
-            sub: 'google-oauth2|103547991597626959519',
+            sub: 'google-oauth2|113747372322482751379',
             email: 'miticadenis@gmail.com',
             name: 'Denis Mitica',
             picture: 'https://lh3.googleusercontent.com/a/ACg8ocKLCl4nWe4JKJwCEDu0UWD-7DQ_c5cVqrh8I1wz5L9wLYw8PA=s96-c',
@@ -253,14 +258,19 @@ function NativeAuthProvider({ children, domain, clientId }: {
     setError(null);
     
     try {
+      // HARDCODED TOKEN FOR TESTING - Remove in production!
+      const HARDCODED_TOKEN = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IkJvaE43NTlaaDBfdmktODVzclRHOCJ9.eyJpc3MiOiJodHRwczovL2Rldi1oeGpuamVlbjh0c3NmZ252LnVzLmF1dGgwLmNvbS8iLCJzdWIiOiJnb29nbGUtb2F1dGgyfDExMzc0NzM3MjMyMjQ4Mjc1MTM3OSIsImF1ZCI6WyJodHRwczovL3Jvb21pZnktYXBpIiwiaHR0cHM6Ly9kZXYtaHhqbmplZW44dHNzZmdudi51cy5hdXRoMC5jb20vdXNlcmluZm8iXSwiaWF0IjoxNzY1NTc4OTQxLCJleHAiOjE3NjU2NjUzNDEsInNjb3BlIjoib3BlbmlkIHByb2ZpbGUgZW1haWwiLCJhenAiOiJQUWx5S0U3ZHNDa3pBVGRyZmRDb3FOaHZxc2V5dW9VMyJ9.A2kyBBU4p_s1jljlDs7Vx_b2uO7JuwPf8zuXsR5V7cYSSyax9m3SKN7RKwTmZ9Ri5bahnJtGNKlaTU2qfal7QT7v1d_p3gNPGJZSRX4b0jaqaeqo7nv81hewRnv38K39Q2OB5TqVU6enQ5k5XAZ_RKnf2tuDGGPZ82em6vw8R18iLfiTn7DbQItw9u1eBU8Grofe24tEtO-oeLWzTgJk28a4eEpFLpkFAVPviX9ukERxIvRNdD_joHPvNZMrQKVajHGNTAAFpHfob5q6YWILLnh9EsbHrGxoiMWyHr50lt9Z_vtFE0763eSbeFCimL2tipNeoHcDK-SrqvG-cmi0uA';
+      
       const { default: AsyncStorage } = await import('@react-native-async-storage/async-storage');
       const savedToken = await AsyncStorage.getItem('mobile_auth_token');
       
-      if (savedToken) {
-        console.log('[NativeAuthProvider] Using saved token');
-        setAccessToken(savedToken);
+      const tokenToUse = savedToken || HARDCODED_TOKEN;
+      
+      if (tokenToUse) {
+        console.log('[NativeAuthProvider] Login successful with token');
+        setAccessToken(tokenToUse);
         setUser({
-          sub: 'google-oauth2|103547991597626959519',
+          sub: 'google-oauth2|113747372322482751379',
           email: 'miticadenis@gmail.com',
           name: 'Denis Mitica',
           picture: 'https://lh3.googleusercontent.com/a/ACg8ocKLCl4nWe4JKJwCEDu0UWD-7DQ_c5cVqrh8I1wz5L9wLYw8PA=s96-c',

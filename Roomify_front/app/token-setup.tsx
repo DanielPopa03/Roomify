@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Blue, Neutral, Typography, Spacing } from '@/constants/theme';
@@ -10,8 +10,14 @@ export default function TokenSetupScreen() {
 
   const handleSave = async () => {
     if (token.trim()) {
-      await AsyncStorage.setItem('mobile_auth_token', token.trim());
-      router.replace('/');
+      try {
+        await AsyncStorage.setItem('mobile_auth_token', token.trim());
+        Alert.alert('Success', 'Token saved successfully!', [
+          { text: 'OK', onPress: () => router.replace('/') }
+        ]);
+      } catch (error) {
+        Alert.alert('Error', 'Failed to save token');
+      }
     }
   };
 
@@ -25,11 +31,12 @@ export default function TokenSetupScreen() {
 
         <View style={styles.steps}>
           <Text style={styles.stepTitle}>Steps:</Text>
-          <Text style={styles.step}>1. Open web app (localhost:8081)</Text>
-          <Text style={styles.step}>2. Open browser console (F12)</Text>
-          <Text style={styles.step}>3. Run: copy(document.cookie)</Text>
-          <Text style={styles.step}>4. Or check Network tab → API call → Authorization header</Text>
-          <Text style={styles.step}>5. Paste the JWT token below</Text>
+          <Text style={styles.step}>1. Open web app at localhost:8081</Text>
+          <Text style={styles.step}>2. Log in to your account</Text>
+          <Text style={styles.step}>3. Open browser DevTools (F12)</Text>
+          <Text style={styles.step}>4. Go to Network tab → Click any API request</Text>
+          <Text style={styles.step}>5. Copy the JWT token from Authorization header</Text>
+          <Text style={styles.step}>6. Paste the token below (starts with eyJ...)</Text>
         </View>
 
         <TextInput
@@ -105,11 +112,10 @@ const styles = StyleSheet.create({
     borderColor: Neutral[300],
     borderRadius: 8,
     padding: Spacing.md,
-    fontSize: Typography.size.sm,
+    fontSize: Typography.size.base,
     color: Neutral[900],
     minHeight: 120,
     textAlignVertical: 'top',
-    fontFamily: 'monospace',
     marginBottom: Spacing.lg,
   },
   button: {
@@ -117,7 +123,7 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     borderRadius: 8,
     alignItems: 'center',
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.lg,
   },
   buttonDisabled: {
     backgroundColor: Neutral[300],
@@ -128,9 +134,9 @@ const styles = StyleSheet.create({
     fontWeight: Typography.weight.semibold,
   },
   note: {
-    fontSize: Typography.size.xs,
+    fontSize: Typography.size.sm,
     color: Neutral[500],
+    lineHeight: 20,
     textAlign: 'center',
-    lineHeight: 18,
   },
 });
