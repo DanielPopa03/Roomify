@@ -12,6 +12,7 @@ export { EmptyState } from './EmptyState';
 export { FilterButton } from './FilterButton';
 export { Header } from './Header';
 export { ImageCarousel } from './ImageCarousel';
+export { ImageGalleryModal } from './ImageGalleryModal';
 export { Input } from './Input';
 export { PropertyCard } from './PropertyCard';
 export { SwipeButtons } from './SwipeButtons';

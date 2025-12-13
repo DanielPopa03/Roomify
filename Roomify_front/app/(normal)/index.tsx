@@ -17,7 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 
-import { Header, SwipeButtons, Card, EmptyState, FilterButton, Avatar } from '@/components/ui';
+import { Header, SwipeButtons, Card, EmptyState, FilterButton, Avatar, ImageGalleryModal } from '@/components/ui';
 import { Blue, Neutral, Typography, Spacing, BorderRadius, Shadows } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useProperties, useInteractions } from '@/hooks/useApi';
@@ -94,6 +94,7 @@ export default function BrowseScreen() {
     const [properties, setProperties] = useState<any[]>(apiProperties && apiProperties.length > 0 ? [] : MOCK_PROPERTIES);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [currentImageIndex, setCurrentImageIndex] = useState(0);
+    const [isGalleryVisible, setIsGalleryVisible] = useState(false);
     
     // Update properties when API data arrives
     useEffect(() => {
@@ -226,35 +227,9 @@ export default function BrowseScreen() {
     const handleInterested = () => swipeCard('right');
     const handleNotInterested = () => swipeCard('left');
     
-    // Handle image navigation
-    const handleImageTap = (side: 'left' | 'right') => {
-        if (!currentProperty?.images) return;
-        const totalImages = currentProperty.images.length;
-        
-        if (side === 'right' && currentImageIndex < totalImages - 1) {
-            setCurrentImageIndex(prev => prev + 1);
-        } else if (side === 'left' && currentImageIndex > 0) {
-            setCurrentImageIndex(prev => prev - 1);
-        }
-    };
-    
-    // Render image pagination dots
-    const renderImageDots = () => {
-        if (!currentProperty?.images || currentProperty.images.length <= 1) return null;
-        
-        return (
-            <View style={styles.imageDots}>
-                {currentProperty.images.map((_, index) => (
-                    <View 
-                        key={index} 
-                        style={[
-                            styles.imageDot, 
-                            index === currentImageIndex && styles.imageDotActive
-                        ]} 
-                    />
-                ))}
-            </View>
-        );
+    // Handle opening image gallery
+    const handleImagePress = () => {
+        setIsGalleryVisible(true);
     };
     
     // Render amenity tags
@@ -352,27 +327,17 @@ export default function BrowseScreen() {
                     style={[styles.card, cardStyle]} 
                     {...panResponder.panHandlers}
                 >
-                    {/* Property Image with tap zones */}
-                    <View style={styles.imageContainer}>
+                    {/* Property Image - tap to open gallery */}
+                    <TouchableOpacity 
+                        style={styles.imageContainer} 
+                        onPress={handleImagePress}
+                        activeOpacity={0.95}
+                    >
                         <Image
-                            source={{ uri: currentProperty.images?.[currentImageIndex] || currentProperty.images?.[0] || 'https://images.unsplash.com/photo-1568605114967-8130f3a36994' }}
+                            source={{ uri: currentProperty.images?.[0] || 'https://images.unsplash.com/photo-1568605114967-8130f3a36994' }}
                             style={styles.cardImage}
                             resizeMode="cover"
                         />
-                        
-                        {/* Image Navigation Tap Zones */}
-                        <View style={styles.imageTapZones}>
-                            <TouchableOpacity 
-                                style={styles.tapZoneLeft} 
-                                onPress={() => handleImageTap('left')}
-                                activeOpacity={1}
-                            />
-                            <TouchableOpacity 
-                                style={styles.tapZoneRight} 
-                                onPress={() => handleImageTap('right')}
-                                activeOpacity={1}
-                            />
-                        </View>
                         
                         {/* Image Gradient Overlay */}
                         <LinearGradient
@@ -381,15 +346,20 @@ export default function BrowseScreen() {
                             style={styles.imageGradient}
                         />
                         
-                        {/* Image Pagination Dots */}
-                        {renderImageDots()}
+                        {/* Image count badge */}
+                        {currentProperty.images && currentProperty.images.length > 1 && (
+                            <View style={styles.imageCountBadge}>
+                                <Ionicons name="images-outline" size={16} color="#FFFFFF" />
+                                <Text style={styles.imageCountText}>{currentProperty.images.length}</Text>
+                            </View>
+                        )}
                         
                         {/* Price Badge on Image */}
                         <View style={styles.priceBadge}>
                             <Text style={styles.priceBadgeText}>${currentProperty.price}</Text>
                             <Text style={styles.priceBadgeUnit}>/mo</Text>
                         </View>
-                    </View>
+                    </TouchableOpacity>
                     
                     {/* Swipe Indicators */}
                     <Animated.View style={[styles.indicator, styles.interestedIndicator, { opacity: interestedOpacity }]}>
@@ -464,6 +434,16 @@ export default function BrowseScreen() {
                     {currentIndex + 1} of {properties.length}
                 </Text>
             </View>
+            
+            {/* Image Gallery Modal */}
+            {currentProperty && (
+                <ImageGalleryModal
+                    images={currentProperty.images || []}
+                    visible={isGalleryVisible}
+                    initialIndex={0}
+                    onClose={() => setIsGalleryVisible(false)}
+                />
+            )}
         </View>
     );
 }
@@ -507,38 +487,22 @@ const styles = StyleSheet.create({
         bottom: 0,
         height: '100%',
     },
-    imageTapZones: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        flexDirection: 'row',
-    },
-    tapZoneLeft: {
-        flex: 1,
-    },
-    tapZoneRight: {
-        flex: 1,
-    },
-    imageDots: {
+    imageCountBadge: {
         position: 'absolute',
         top: 12,
-        left: 0,
-        right: 0,
+        right: 12,
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 16,
         flexDirection: 'row',
-        justifyContent: 'center',
-        gap: 6,
+        alignItems: 'center',
+        gap: 4,
     },
-    imageDot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        backgroundColor: 'rgba(255,255,255,0.5)',
-    },
-    imageDotActive: {
-        backgroundColor: '#FFFFFF',
-        width: 20,
+    imageCountText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        fontWeight: '600',
     },
     priceBadge: {
         position: 'absolute',

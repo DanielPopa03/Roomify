@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { View, Image, StyleSheet, TouchableOpacity, Dimensions, Text } from 'react-native';
+import { View, Image, StyleSheet, TouchableOpacity, Dimensions, Text, Modal, ScrollView } from 'react-native';
 import Carousel from 'react-native-reanimated-carousel';
-import ImageView from 'react-native-image-viewing';
+import { Ionicons } from '@expo/vector-icons';
 import { Neutral, BorderRadius } from '@/constants/theme';
 
 interface ImageCarouselProps {
@@ -48,12 +48,31 @@ export const ImageCarousel: React.FC<ImageCarouselProps> = ({
           resizeMode="cover"
         />
         {enableZoom && (
-          <ImageView
-            images={validImages.map(uri => ({ uri }))}
-            imageIndex={0}
+          <Modal
             visible={isViewerVisible}
+            transparent={true}
             onRequestClose={() => setIsViewerVisible(false)}
-          />
+          >
+            <View style={styles.modalContainer}>
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={() => setIsViewerVisible(false)}
+              >
+                <Ionicons name="close" size={32} color="#FFF" />
+              </TouchableOpacity>
+              <ScrollView
+                maximumZoomScale={3}
+                minimumZoomScale={1}
+                contentContainerStyle={styles.scrollContent}
+              >
+                <Image
+                  source={{ uri: validImages[0] }}
+                  style={styles.fullImage}
+                  resizeMode="contain"
+                />
+              </ScrollView>
+            </View>
+          </Modal>
         )}
       </TouchableOpacity>
     );
@@ -109,12 +128,31 @@ export const ImageCarousel: React.FC<ImageCarouselProps> = ({
 
       {/* Full-screen image viewer */}
       {enableZoom && (
-        <ImageView
-          images={validImages.map(uri => ({ uri }))}
-          imageIndex={currentIndex}
+        <Modal
           visible={isViewerVisible}
+          transparent={true}
           onRequestClose={() => setIsViewerVisible(false)}
-        />
+        >
+          <View style={styles.modalContainer}>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setIsViewerVisible(false)}
+            >
+              <Ionicons name="close" size={32} color="#FFF" />
+            </TouchableOpacity>
+            <ScrollView
+              maximumZoomScale={3}
+              minimumZoomScale={1}
+              contentContainerStyle={styles.scrollContent}
+            >
+              <Image
+                source={{ uri: validImages[currentIndex] }}
+                style={styles.fullImage}
+                resizeMode="contain"
+              />
+            </ScrollView>
+          </View>
+        </Modal>
       )}
     </View>
   );
@@ -175,5 +213,27 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '600',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+    padding: 10,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullImage: {
+    width: Dimensions.get('window').width,
+    height: Dimensions.get('window').height * 0.8,
   },
 });
