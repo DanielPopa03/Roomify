@@ -39,19 +39,16 @@ public class PropertyController {
 
     // 1. CREATE PROPERTY (With Images)
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<Property> createProperty(
+    public ResponseEntity<?> createProperty(
             @RequestPart("data") String propertyRequestString,
             @RequestParam(value = "images", required = false) List<MultipartFile> images,
             @AuthenticationPrincipal Jwt jwt,
             HttpServletRequest request
-    ) throws JsonProcessingException {
+    ) {
 
         // Debug logging
         System.out.println("=== CREATE PROPERTY DEBUG ===");
-        System.out.println("Images parameter: " + images);
-        System.out.println("Images size: " + (images != null ? images.size() : "null"));
-        System.out.println("Content-Type: " + request.getContentType());
-        
+
         // Log all multipart parts
         try {
             for (Part part : request.getParts()) {
@@ -61,28 +58,60 @@ public class PropertyController {
             System.out.println("Error reading parts: " + e.getMessage());
         }
 
-        // Manual parsing uses the instance created above
-        PropertyRequest propertyRequest = objectMapper.readValue(propertyRequestString, PropertyRequest.class);
+        // --- 1. SAFE JSON PARSING ---
+        PropertyRequest propertyRequest;
+        try {
+            // Manual parsing uses the instance created above
+            propertyRequest = objectMapper.readValue(propertyRequestString, PropertyRequest.class);
+        } catch (JsonProcessingException e) {
+            // Log to console without emojis
+            System.err.println("[Error] JSON Parsing Error in Create Property: " + e.getMessage());
 
-        String userId = jwt.getSubject();
-        Property savedProperty = propertyService.createProperty(propertyRequest, images, userId);
-        return ResponseEntity.ok(savedProperty);
+            // Return 400 Bad Request to the frontend
+            return ResponseEntity.badRequest()
+                    .body("Invalid data format: Please check your inputs (e.g., ensure Price is a number).");
+        }
+
+        // --- 2. SERVICE LOGIC ---
+        try {
+            String userId = jwt.getSubject();
+            Property savedProperty = propertyService.createProperty(propertyRequest, images, userId);
+            return ResponseEntity.ok(savedProperty);
+        } catch (RuntimeException e) {
+            // Catch business logic errors (like validation or file issues)
+            System.err.println("[Error] Service Error: " + e.getMessage());
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
     // 2. UPDATE PROPERTY (With Images)
     @PutMapping(value = "/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<Property> updateProperty(
+    public ResponseEntity<?> updateProperty(
             @PathVariable Long id,
             @RequestPart("data") String propertyRequestString,
             @RequestPart(value = "images", required = false) List<MultipartFile> images,
             @AuthenticationPrincipal Jwt jwt
-    ) throws JsonProcessingException {
+    ) {
 
-        PropertyRequest request = objectMapper.readValue(propertyRequestString, PropertyRequest.class);
-        String userId = jwt.getSubject();
+        // --- 1. SAFE JSON PARSING ---
+        PropertyRequest request;
+        try {
+            request = objectMapper.readValue(propertyRequestString, PropertyRequest.class);
+        } catch (JsonProcessingException e) {
+            System.err.println("[Error] JSON Parsing Error in Update Property: " + e.getMessage());
+            return ResponseEntity.badRequest()
+                    .body("Invalid data format: Please check your inputs.");
+        }
 
-        Property updatedProperty = propertyService.updateProperty(id, request, images, userId);
-        return ResponseEntity.ok(updatedProperty);
+        // --- 2. SERVICE LOGIC ---
+        try {
+            String userId = jwt.getSubject();
+            Property updatedProperty = propertyService.updateProperty(id, request, images, userId);
+            return ResponseEntity.ok(updatedProperty);
+        } catch (RuntimeException e) {
+            System.err.println("[Error] Service Error: " + e.getMessage());
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
     // 3. SERVE IMAGES
