@@ -18,6 +18,7 @@ interface HeaderProps {
   onProfilePress?: () => void;
   rightIcon?: keyof typeof Ionicons.glyphMap;
   onRightPress?: () => void;
+  rightAction?: React.ReactNode;
   showBackButton?: boolean;
   onBackPress?: () => void;
 }
@@ -29,6 +30,7 @@ export function Header({
   onProfilePress,
   rightIcon,
   onRightPress,
+  rightAction,
   showBackButton = false,
   onBackPress,
 }: HeaderProps) {
@@ -59,9 +61,11 @@ export function Header({
           </View>
         )}
 
-        {/* Right side - Profile */}
+        {/* Right side - Custom action, Profile, or placeholder */}
         <View style={styles.rightSection}>
-          {showProfile && user ? (
+          {rightAction ? (
+            rightAction
+          ) : showProfile && user ? (
             <TouchableOpacity onPress={onProfilePress} style={styles.profileButton}>
               <Avatar source={user.picture} name={user.name || user.email} size="sm" />
             </TouchableOpacity>

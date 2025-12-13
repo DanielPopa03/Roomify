@@ -1,14 +1,34 @@
 import { Redirect } from 'expo-router';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Platform } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { useRole } from '../context/RoleContext';
 import { useCurrentUser } from '../hooks/useApi';
 import { Blue } from '../constants/theme';
+import { useEffect, useState } from 'react';
 
 export default function Index() {
-  const { user: authUser, isLoading: authLoading, isAuthenticated } = useAuth();
+  const { user: authUser, isLoading: authLoading, isAuthenticated, error } = useAuth();
   const { user: backendUser, isLoading: userLoading } = useCurrentUser();
   const { role, setRole } = useRole();
+  const [needsTokenSetup, setNeedsTokenSetup] = useState(false);
+
+  // Check if mobile needs token setup
+  useEffect(() => {
+    const checkMobileAuth = async () => {
+      if (Platform.OS !== 'web' && !authLoading && error) {
+        // Check if error is about missing token (matches "No auth token configured. Please set up mobile auth.")
+        if (error.message.includes('auth token') || error.message.includes('set up mobile')) {
+          setNeedsTokenSetup(true);
+        }
+      }
+    };
+    checkMobileAuth();
+  }, [authLoading, error]);
+
+  // Redirect to token setup if needed
+  if (needsTokenSetup) {
+    return <Redirect href="/token-setup" />;
+  }
 
   // 1. Show a spinner while Auth0 checks if we have a saved token
   if (authLoading || userLoading) {

@@ -90,8 +90,8 @@ export default function BrowseScreen() {
     const { data: apiProperties, isLoading, error, refetch } = useProperties();
     const { expressInterest, pass } = useInteractions();
     
-    // Use API data or fallback to mock
-    const [properties, setProperties] = useState(MOCK_PROPERTIES);
+    // Use API data or fallback to mock for demo
+    const [properties, setProperties] = useState<any[]>(apiProperties && apiProperties.length > 0 ? [] : MOCK_PROPERTIES);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [currentImageIndex, setCurrentImageIndex] = useState(0);
     
@@ -99,10 +99,26 @@ export default function BrowseScreen() {
     useEffect(() => {
         if (apiProperties && apiProperties.length > 0) {
             setProperties(apiProperties.map(p => ({
-                ...p,
-                images: p.images || ['https://images.unsplash.com/photo-1568605114967-8130f3a36994'],
-                amenities: p.amenities || ['Modern', 'Clean'],
-                landlord: p.landlord || { name: 'Property Owner', rating: 4.5 },
+                id: p.id.toString(),
+                images: p.images?.map(img => img.url) || ['https://images.unsplash.com/photo-1568605114967-8130f3a36994'],
+                title: p.title,
+                price: p.price,
+                location: p.address,
+                description: p.description || 'No description available',
+                bedrooms: p.numberOfRooms,
+                bathrooms: p.hasExtraBathroom ? 2 : 1,
+                area: p.surface,
+                amenities: [
+                    ...(p.layoutType ? [p.layoutType] : []),
+                    ...(p.smokerFriendly ? ['Smoker Friendly'] : []),
+                    ...(p.petFriendly ? ['Pet Friendly'] : []),
+                    ...(p.preferredTenants || []),
+                ],
+                landlord: { 
+                    name: 'Property Owner', 
+                    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + p.ownerId,
+                    rating: 4.5 
+                },
             })));
             setCurrentIndex(0);
         }

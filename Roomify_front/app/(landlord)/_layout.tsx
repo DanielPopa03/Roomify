@@ -72,6 +72,22 @@ export default function LandlordLayout() {
                     ),
                 }}
             />
+            
+            {/* Hidden screens - not shown in tab bar but accessible via navigation */}
+            <Tabs.Screen
+                name="add-property"
+                options={{
+                    href: null, // Hide from tab bar
+                    title: 'Add Property',
+                }}
+            />
+            <Tabs.Screen
+                name="edit-property"
+                options={{
+                    href: null, // Hide from tab bar
+                    title: 'Edit Property',
+                }}
+            />
         </Tabs>
     );
 }

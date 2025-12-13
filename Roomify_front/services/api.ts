@@ -3,7 +3,22 @@
  * Centralized API calls for Roomify
  */
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8080';
+import { Platform } from 'react-native';
+
+// Web uses localhost, mobile uses host IP from env
+const getApiUrl = () => {
+  const envUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8080';
+  
+  // On web, always use localhost
+  if (Platform.OS === 'web') {
+    return 'http://localhost:8080';
+  }
+  
+  // On mobile (iOS/Android), use the env variable (should be host machine IP)
+  return envUrl;
+};
+
+const API_URL = getApiUrl();
 
 // ============================================
 // TYPES
@@ -34,16 +49,27 @@ export interface Role {
   name: string;
 }
 
+export interface PropertyImage {
+  id: number;
+  url: string;
+  orderIndex: number;
+}
+
 export interface Property {
-  id: string;
+  id: number;
+  ownerId: string;
   title: string;
-  description: string;
+  description?: string;
   price: number;
-  images: string[];
-  location: string;
-  latitude?: number;
-  longitude?: number;
-  landlordId: string;
+  surface: number;
+  address: string;
+  numberOfRooms: number;
+  hasExtraBathroom: boolean;
+  layoutType?: 'DECOMANDAT' | 'SEMIDECOMANDAT' | 'NEDECOMANDAT';
+  smokerFriendly?: boolean;
+  petFriendly?: boolean;
+  preferredTenants?: string[];
+  images: PropertyImage[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -154,56 +180,138 @@ export const AuthApi = {
 
 export const PropertiesApi = {
   /**
-   * Get all properties (for swiping)
+   * Get all properties (for swiping/browsing)
    */
-  getAll: (accessToken: string, filters?: Record<string, string>) => {
-    const params = filters ? `?${new URLSearchParams(filters)}` : '';
-    return fetchApi<Property[]>(`/properties${params}`, { method: 'GET' }, accessToken);
+  getAll: (accessToken: string, page: number = 0, size: number = 10) => {
+    return fetchApi<{content: Property[], totalPages: number, totalElements: number}>(
+      `/api/properties?page=${page}&size=${size}`,
+      { method: 'GET' },
+      accessToken
+    );
   },
 
   /**
    * Get property by ID
    */
-  getById: (accessToken: string, id: string) =>
-    fetchApi<Property>(`/properties/${id}`, { method: 'GET' }, accessToken),
+  getById: (accessToken: string, id: number) => {
+    // Guard against NaN or invalid IDs
+    if (!id || Number.isNaN(id)) {
+      console.error('[PropertiesApi.getById] Invalid ID:', id);
+      return Promise.resolve({ error: 'Invalid property ID', status: 400 } as ApiResponse<Property>);
+    }
+    return fetchApi<Property>(`/api/properties/${id}`, { method: 'GET' }, accessToken);
+  },
 
   /**
-   * Create new property (landlord only)
+   * Create a new property with images
+   * @param images - Array of File objects (web) or React Native image objects with { uri, type, name }
    */
-  create: (accessToken: string, data: Omit<Property, 'id' | 'landlordId' | 'createdAt' | 'updatedAt'>) =>
-    fetchApi<Property>(
-      '/properties',
-      {
+  create: async (accessToken: string, propertyData: any, images: Array<File | { uri: string; type: string; name: string }>) => {
+    console.log('[PropertiesApi.create] Starting...');
+    console.log('[PropertiesApi.create] Property data:', propertyData);
+    console.log('[PropertiesApi.create] Images:', images.length);
+    console.log('[PropertiesApi.create] Token present:', !!accessToken);
+    
+    const formData = new FormData();
+    formData.append('data', JSON.stringify(propertyData));
+    
+    // Append images - works for both File objects (web) and {uri, type, name} (native)
+    images.forEach((image, index) => {
+      console.log(`[PropertiesApi.create] Appending image ${index}:`, JSON.stringify(image));
+      formData.append('images', image as any);
+    });
+
+    const url = `${API_URL}/api/properties`;
+    console.log('[PropertiesApi.create] Request URL:', url);
+    
+    try {
+      console.log('[PropertiesApi.create] Sending POST request...');
+      const response = await fetch(url, {
         method: 'POST',
-        body: JSON.stringify(data),
-      },
-      accessToken
-    ),
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: formData,
+      });
+
+      console.log('[PropertiesApi.create] Response status:', response.status);
+      const status = response.status;
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[PropertiesApi.create] Error response:', errorText);
+        return { error: errorText || `Request failed with status ${status}`, status };
+      }
+
+      const text = await response.text();
+      console.log('[PropertiesApi.create] Response text:', text);
+      const data = text ? JSON.parse(text) : null;
+      console.log('[PropertiesApi.create] Parsed data:', data);
+      return { data, status } as ApiResponse<Property>;
+    } catch (error) {
+      console.error('[PropertiesApi.create] Exception:', error);
+      return {
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+        status: 0,
+      } as ApiResponse<Property>;
+    }
+  },
 
   /**
    * Update property (landlord only)
    */
-  update: (accessToken: string, id: string, data: Partial<Property>) =>
-    fetchApi<Property>(
-      `/properties/${id}`,
-      {
+  update: async (accessToken: string, id: number, propertyData: any, images?: File[]) => {
+    const formData = new FormData();
+    formData.append('data', JSON.stringify(propertyData));
+    
+    if (images && images.length > 0) {
+      images.forEach((image) => {
+        formData.append('images', image);
+      });
+    }
+
+    const url = `${API_URL}/api/properties/${id}`;
+    try {
+      const response = await fetch(url, {
         method: 'PUT',
-        body: JSON.stringify(data),
-      },
-      accessToken
-    ),
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: formData,
+      });
+
+      const status = response.status;
+      if (!response.ok) {
+        const errorText = await response.text();
+        return { error: errorText || `Request failed with status ${status}`, status };
+      }
+
+      const text = await response.text();
+      const data = text ? JSON.parse(text) : null;
+      return { data, status } as ApiResponse<Property>;
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+        status: 0,
+      } as ApiResponse<Property>;
+    }
+  },
 
   /**
    * Delete property (landlord only)
    */
-  delete: (accessToken: string, id: string) =>
-    fetchApi<void>(`/properties/${id}`, { method: 'DELETE' }, accessToken),
+  delete: (accessToken: string, id: number) =>
+    fetchApi<void>(`/api/properties/${id}`, { method: 'DELETE' }, accessToken),
 
   /**
    * Get landlord's own properties
    */
-  getMyListings: (accessToken: string) =>
-    fetchApi<Property[]>('/properties/my-listings', { method: 'GET' }, accessToken),
+  getMyListings: (accessToken: string, page: number = 0, size: number = 10) =>
+    fetchApi<{content: Property[], totalPages: number, totalElements: number}>(
+      `/api/properties/my?page=${page}&size=${size}`,
+      { method: 'GET' },
+      accessToken
+    ),
 };
 
 // ============================================

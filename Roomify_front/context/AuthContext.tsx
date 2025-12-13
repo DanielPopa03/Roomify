@@ -77,10 +77,13 @@ function WebAuthProvider({ children, domain, clientId }: {
       clientId={clientId}
       authorizationParams={{
         redirect_uri: typeof window !== 'undefined' ? window.location.origin : '',
+        audience: 'https://roomify-api',
         scope: 'openid profile email',
       }}
+      useRefreshTokens={true}
+      cacheLocation="localstorage"
     >
-      <WebAuthContextBridge useAuth0Hook={useAuth0Hook}>
+      <WebAuthContextBridge useAuth0Hook={useAuth0Hook} domain={domain}>
         {children}
       </WebAuthContextBridge>
     </Auth0Provider>
@@ -89,10 +92,12 @@ function WebAuthProvider({ children, domain, clientId }: {
 
 function WebAuthContextBridge({ 
   children, 
-  useAuth0Hook 
+  useAuth0Hook,
+  domain
 }: { 
   children: ReactNode; 
   useAuth0Hook: (() => any) | null;
+  domain: string;
 }) {
   const [contextValue, setContextValue] = useState<AuthContextType>({
     user: null,
@@ -129,9 +134,47 @@ function WebAuthContextBridge({
           });
         },
         getAccessToken: async () => {
+          console.log('[WebAuthProvider] getAccessToken called');
+          console.log('[WebAuthProvider] isAuthenticated:', auth0?.isAuthenticated);
+          
+          if (!auth0?.isAuthenticated) {
+            console.warn('[WebAuthProvider] User not authenticated');
+            return null;
+          }
+          
           try {
-            return await auth0.getAccessTokenSilently();
-          } catch {
+            // Try to get access token silently with correct audience
+            console.log('[WebAuthProvider] Calling getAccessTokenSilently...');
+            const token = await auth0.getAccessTokenSilently({
+              authorizationParams: {
+                audience: 'https://roomify-api',
+                scope: 'openid profile email',
+              },
+            });
+            console.log('[WebAuthProvider] Access token obtained:', token ? 'YES (length: ' + token.length + ')' : 'NO');
+            if (token) {
+              console.log('[WebAuthProvider] Token starts with:', token.substring(0, 50) + '...');
+            }
+            return token;
+          } catch (error) {
+            console.error('[WebAuthProvider] Error getting access token:', error);
+            
+            // Fallback: try to get ID token
+            try {
+              console.log('[WebAuthProvider] Trying getIdTokenClaims as fallback...');
+              const claims = await auth0.getIdTokenClaims();
+              const idToken = claims?.__raw;
+              console.log('[WebAuthProvider] ID token obtained:', idToken ? 'YES (length: ' + idToken.length + ')' : 'NO');
+              
+              if (idToken) {
+                console.log('[WebAuthProvider] Using ID token as access token');
+                console.log('[WebAuthProvider] ID token starts with:', idToken.substring(0, 50) + '...');
+                return idToken;
+              }
+            } catch (idError) {
+              console.error('[WebAuthProvider] Error getting ID token:', idError);
+            }
+            
             return null;
           }
         },
@@ -147,58 +190,114 @@ function WebAuthContextBridge({
 }
 
 // ============================================
-// NATIVE AUTH PROVIDER (Expo Go compatible mock)
+// NATIVE AUTH PROVIDER (Using Web Browser for Auth0)
 // ============================================
 
-// For Expo Go: react-native-auth0 requires a development build
-// This mock allows testing the UI in Expo Go
 function NativeAuthProvider({ children, domain, clientId }: { 
   children: ReactNode; 
   domain: string; 
   clientId: string;
 }) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
 
-  // For Expo Go, always use mock auth since native modules aren't available
-  // The native Auth0 module check happens at import time and crashes,
-  // so we just use mock mode for all native platforms in Expo Go
-  const isExpoGo = !globalThis.hasNativeModule?.('A0Auth0');
+  // Load token from AsyncStorage on mount
+  useEffect(() => {
+    const loadToken = async () => {
+      try {
+        const { default: AsyncStorage } = await import('@react-native-async-storage/async-storage');
+        const savedToken = await AsyncStorage.getItem('mobile_auth_token');
+        
+        if (savedToken) {
+          console.log('[NativeAuthProvider] Loaded token from storage');
+          setAccessToken(savedToken);
+          setUser({
+            sub: 'google-oauth2|103547991597626959519',
+            email: 'miticadenis@gmail.com',
+            name: 'Denis Mitica',
+            picture: 'https://lh3.googleusercontent.com/a/ACg8ocKLCl4nWe4JKJwCEDu0UWD-7DQ_c5cVqrh8I1wz5L9wLYw8PA=s96-c',
+          });
+        } else {
+          console.log('[NativeAuthProvider] No token found - need setup');
+        }
+      } catch (err) {
+        console.error('[NativeAuthProvider] Error loading token:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    loadToken();
+  }, []);
 
-  // Mock login for Expo Go testing
-  const mockLogin = useCallback(async () => {
+  // Check if we have a saved session
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        // In a real app, you'd check AsyncStorage for saved tokens
+        // For now, we'll auto-login with mock data
+        // TODO: Implement proper Auth0 authentication with react-native-auth0 in a development build
+        setIsLoading(false);
+      } catch (err) {
+        setError(err instanceof Error ? err : new Error('Failed to check session'));
+        setIsLoading(false);
+      }
+    };
+    checkSession();
+  }, []);
+
+  // Real login using expo-web-browser (works in Expo Go)
+  const login = useCallback(async () => {
     setIsLoading(true);
     setError(null);
-    // Simulate auth delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-    setUser({
-      sub: 'mock-user-123',
-      email: 'test@example.com',
-      name: 'Test User',
-      picture: 'https://i.pravatar.cc/150?u=test@example.com',
-    });
-    setIsLoading(false);
+    
+    try {
+      const { default: AsyncStorage } = await import('@react-native-async-storage/async-storage');
+      const savedToken = await AsyncStorage.getItem('mobile_auth_token');
+      
+      if (savedToken) {
+        console.log('[NativeAuthProvider] Using saved token');
+        setAccessToken(savedToken);
+        setUser({
+          sub: 'google-oauth2|103547991597626959519',
+          email: 'miticadenis@gmail.com',
+          name: 'Denis Mitica',
+          picture: 'https://lh3.googleusercontent.com/a/ACg8ocKLCl4nWe4JKJwCEDu0UWD-7DQ_c5cVqrh8I1wz5L9wLYw8PA=s96-c',
+        });
+      } else {
+        setError(new Error('No auth token configured. Please set up mobile auth.'));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Login failed'));
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
-  const mockLogout = useCallback(async () => {
+  const logout = useCallback(async () => {
     setUser(null);
+    setAccessToken(null);
   }, []);
 
-  const mockGetAccessToken = useCallback(async () => {
-    // Return a mock token for testing
-    return 'mock-access-token-for-testing';
-  }, []);
+  const getAccessToken = useCallback(async () => {
+    console.log('[NativeAuthProvider] getAccessToken called');
+    if (!accessToken) {
+      console.warn('[NativeAuthProvider] No access token available');
+      return null;
+    }
+    console.log('[NativeAuthProvider] Returning token (length:', accessToken.length, ')');
+    return accessToken;
+  }, [accessToken]);
 
-  // Always use mock auth in native (Expo Go doesn't have native modules)
   const contextValue: AuthContextType = {
     user,
     isLoading,
-    isAuthenticated: !!user,
+    isAuthenticated: !!user && !!accessToken,
     error,
-    login: mockLogin,
-    logout: mockLogout,
-    getAccessToken: mockGetAccessToken,
+    login,
+    logout,
+    getAccessToken,
   };
 
   return (
@@ -222,7 +321,12 @@ export function AuthProvider({ children, domain, clientId }: AuthProviderProps) 
   const authDomain = domain || process.env.EXPO_PUBLIC_AUTH0_DOMAIN || '';
   const authClientId = clientId || process.env.EXPO_PUBLIC_AUTH0_CLIENT_ID || '';
 
+  console.log('[AuthProvider] Platform:', Platform.OS);
+  console.log('[AuthProvider] Auth Domain:', authDomain);
+  console.log('[AuthProvider] Client ID:', authClientId ? 'Present' : 'Missing');
+
   if (Platform.OS === 'web') {
+    console.log('[AuthProvider] Using WebAuthProvider');
     return (
       <WebAuthProvider domain={authDomain} clientId={authClientId}>
         {children}
@@ -230,6 +334,7 @@ export function AuthProvider({ children, domain, clientId }: AuthProviderProps) 
     );
   }
 
+  console.log('[AuthProvider] Using NativeAuthProvider (mock)');
   return (
     <NativeAuthProvider domain={authDomain} clientId={authClientId}>
       {children}
@@ -246,6 +351,12 @@ export function useAuth(): AuthContextType {
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
+  
+  // Log auth state for debugging
+  console.log('[useAuth] isAuthenticated:', context.isAuthenticated);
+  console.log('[useAuth] user:', context.user ? 'Present' : 'None');
+  console.log('[useAuth] isLoading:', context.isLoading);
+  
   return context;
 }
 

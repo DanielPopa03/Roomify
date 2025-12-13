@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Alert, ActivityIndicator, RefreshControl } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Alert, ActivityIndicator, RefreshControl, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Header, Card, Button, EmptyState } from '@/components/ui';
@@ -49,20 +49,54 @@ export default function LandlordPropertiesScreen() {
     const { data: apiProperties, isLoading, error, refetch } = useMyListings();
     const { deleteProperty } = usePropertyMutations();
     
-    const [properties, setProperties] = useState(MOCK_PROPERTIES);
+    const [properties, setProperties] = useState<any[]>([]);
     const [refreshing, setRefreshing] = useState(false);
     
-    // Update properties when API data arrives
+    // Debug: Track mount/unmount to detect navigation issues
     useEffect(() => {
+        console.log('[LandlordIndex] MOUNT');
+        return () => console.log('[LandlordIndex] UNMOUNT');
+    }, []);
+    
+    // Refetch properties when screen comes into focus (e.g., after adding a new property)
+    useFocusEffect(
+        useCallback(() => {
+            console.log('[LandlordIndex] Screen focused, refetching properties...');
+            // Small delay to prevent race conditions with navigation
+            const timer = setTimeout(() => {
+                refetch();
+            }, 100);
+            return () => clearTimeout(timer);
+        }, [refetch])
+    );
+
+    // Update properties when API data arrives
+    // This replaces state entirely - no appending
+    useEffect(() => {
+        console.log('[LandlordIndex] apiProperties changed:', apiProperties?.length, 'items');
+        
         if (apiProperties && apiProperties.length > 0) {
-            setProperties(apiProperties.map(p => ({
-                ...p,
-                images: p.images || ['https://images.unsplash.com/photo-1568605114967-8130f3a36994'],
+            // Map API data to UI format - REPLACE state entirely
+            const mappedProperties = apiProperties.map(p => ({
+                id: p.id.toString(),
+                images: p.images?.map(img => img.url) || ['https://images.unsplash.com/photo-1568605114967-8130f3a36994'],
+                title: p.title,
+                price: p.price,
+                location: p.address,
+                bedrooms: p.numberOfRooms,
+                bathrooms: p.hasExtraBathroom ? 2 : 1,
                 interestedCount: 0,
                 status: 'active',
-            })));
+            }));
+            
+            console.log('[LandlordIndex] Setting', mappedProperties.length, 'properties');
+            setProperties(mappedProperties);
+        } else if (!isLoading && !error) {
+            // No properties from API, show empty state
+            console.log('[LandlordIndex] No properties, showing empty state');
+            setProperties([]);
         }
-    }, [apiProperties]);
+    }, [apiProperties, isLoading, error]);
     
     const onRefresh = async () => {
         setRefreshing(true);
@@ -71,13 +105,18 @@ export default function LandlordPropertiesScreen() {
     };
     
     const handleAddProperty = () => {
-        // Navigate to add property screen (to be implemented)
-        Alert.alert('Add Property', 'Property creation will be available soon!');
+        console.log('[LandlordIndex] handleAddProperty called');
+        console.log('[LandlordIndex] Attempting to navigate to: /(landlord)/add-property');
+        try {
+            router.push('/(landlord)/add-property');
+            console.log('[LandlordIndex] Navigation call completed');
+        } catch (error) {
+            console.error('[LandlordIndex] Navigation error:', error);
+        }
     };
     
     const handleEditProperty = (propertyId: string) => {
-        // Navigate to edit property screen
-        console.log('Edit property:', propertyId);
+        router.push(`/(landlord)/edit-property?id=${propertyId}`);
     };
     
     const handleViewInterested = (propertyId: string) => {
@@ -86,23 +125,37 @@ export default function LandlordPropertiesScreen() {
     };
     
     const handleDeleteProperty = async (propertyId: string) => {
-        Alert.alert(
-            'Delete Property',
-            'Are you sure you want to delete this property?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                { 
-                    text: 'Delete', 
-                    style: 'destructive',
-                    onPress: async () => {
-                        const success = await deleteProperty(propertyId);
-                        if (success) {
-                            setProperties(prev => prev.filter(p => p.id !== propertyId));
-                        }
-                    }
-                },
-            ]
-        );
+        const confirmDelete = async () => {
+            console.log('[LandlordIndex] Deleting property:', propertyId);
+            const success = await deleteProperty(parseInt(propertyId));
+            console.log('[LandlordIndex] Delete result:', success);
+            if (success) {
+                setProperties(prev => prev.filter(p => p.id !== propertyId));
+                // Also refetch to ensure sync with backend
+                refetch();
+            }
+        };
+
+        if (Platform.OS === 'web') {
+            // Web: use window.confirm
+            if (window.confirm('Are you sure you want to delete this property?')) {
+                await confirmDelete();
+            }
+        } else {
+            // Native: use Alert.alert
+            Alert.alert(
+                'Delete Property',
+                'Are you sure you want to delete this property?',
+                [
+                    { text: 'Cancel', style: 'cancel' },
+                    { 
+                        text: 'Delete', 
+                        style: 'destructive',
+                        onPress: confirmDelete
+                    },
+                ]
+            );
+        }
     };
     
     const renderProperty = ({ item }: { item: typeof MOCK_PROPERTIES[0] }) => (
@@ -157,12 +210,21 @@ export default function LandlordPropertiesScreen() {
                         </Text>
                     </TouchableOpacity>
                     
-                    <TouchableOpacity 
-                        style={styles.editButton}
-                        onPress={() => handleEditProperty(item.id)}
-                    >
-                        <Ionicons name="create-outline" size={18} color={Neutral[600]} />
-                    </TouchableOpacity>
+                    <View style={styles.actionButtons}>
+                        <TouchableOpacity 
+                            style={styles.editButton}
+                            onPress={() => handleEditProperty(item.id)}
+                        >
+                            <Ionicons name="create-outline" size={18} color={Neutral[600]} />
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity 
+                            style={styles.deleteButton}
+                            onPress={() => handleDeleteProperty(item.id)}
+                        >
+                            <Ionicons name="trash-outline" size={18} color="#DC2626" />
+                        </TouchableOpacity>
+                    </View>
                 </View>
             </View>
         </Card>
@@ -337,6 +399,15 @@ const styles = StyleSheet.create({
     editButton: {
         padding: Spacing.sm,
         backgroundColor: Neutral[100],
+        borderRadius: BorderRadius.lg,
+    },
+    actionButtons: {
+        flexDirection: 'row',
+        gap: Spacing.sm,
+    },
+    deleteButton: {
+        padding: Spacing.sm,
+        backgroundColor: '#FEE2E2',
         borderRadius: BorderRadius.lg,
     },
 });

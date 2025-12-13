@@ -3,7 +3,7 @@
  * Custom hooks for data fetching with authentication
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Api, { 
   User, 
@@ -185,22 +185,125 @@ export function useUpdateProfile() {
 // PROPERTIES HOOKS
 // ============================================
 
-export function useProperties(filters?: Record<string, string>) {
-  return useApiCall<Property[]>(
-    (token) => Api.Properties.getAll(token, filters)
-  );
+export function useProperties(page: number = 0, size: number = 10) {
+  const { getAccessToken, isAuthenticated } = useAuth();
+  const [data, setData] = useState<Property[] | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalElements, setTotalElements] = useState(0);
+
+  const fetchData = useCallback(async () => {
+    if (!isAuthenticated) {
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        setError('Not authenticated');
+        setIsLoading(false);
+        return;
+      }
+
+      const response = await Api.Properties.getAll(token, page, size);
+      
+      if (response.error) {
+        setError(response.error);
+      } else if (response.data) {
+        setData(response.data.content || []);
+        setTotalPages(response.data.totalPages || 0);
+        setTotalElements(response.data.totalElements || 0);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [getAccessToken, isAuthenticated, page, size]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchData();
+    }
+  }, [isAuthenticated, page, size]);
+
+  return { data, isLoading, error, refetch: fetchData, totalPages, totalElements };
 }
 
-export function useProperty(id: string) {
+export function useProperty(id: number) {
   return useApiCall<Property>(
     (token) => Api.Properties.getById(token, id)
   );
 }
 
-export function useMyListings() {
-  return useApiCall<Property[]>(
-    (token) => Api.Properties.getMyListings(token)
-  );
+export function useMyListings(page: number = 0, size: number = 10) {
+  const { getAccessToken, isAuthenticated } = useAuth();
+  const [data, setData] = useState<Property[] | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalElements, setTotalElements] = useState(0);
+  const fetchingRef = useRef(false); // Prevent duplicate concurrent fetches
+
+  const fetchData = useCallback(async () => {
+    // Prevent duplicate concurrent fetches
+    if (fetchingRef.current) {
+      console.log('[useMyListings] Already fetching, skipping...');
+      return;
+    }
+
+    if (!isAuthenticated) {
+      setIsLoading(false);
+      return;
+    }
+
+    fetchingRef.current = true;
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        setError('Not authenticated');
+        setIsLoading(false);
+        fetchingRef.current = false;
+        return;
+      }
+
+      console.log('[useMyListings] Fetching properties...');
+      const response = await Api.Properties.getMyListings(token, page, size);
+      
+      if (response.error) {
+        setError(response.error);
+      } else if (response.data) {
+        // Replace state entirely (not append)
+        const newData = response.data.content || [];
+        console.log('[useMyListings] Received', newData.length, 'properties');
+        setData(newData);
+        setTotalPages(response.data.totalPages || 0);
+        setTotalElements(response.data.totalElements || 0);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setIsLoading(false);
+      fetchingRef.current = false;
+    }
+  }, [getAccessToken, isAuthenticated, page, size]);
+
+  // Only fetch once on mount and when page/size changes
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchData();
+    }
+  }, [isAuthenticated, page, size]); // Don't include fetchData to avoid loops
+
+  return { data, isLoading, error, refetch: fetchData, totalPages, totalElements };
 }
 
 export function usePropertyMutations() {
@@ -209,7 +312,52 @@ export function usePropertyMutations() {
   const [error, setError] = useState<string | null>(null);
 
   const createProperty = useCallback(async (
-    data: Omit<Property, 'id' | 'landlordId' | 'createdAt' | 'updatedAt'>
+    propertyData: any,
+    images: Array<File | { uri: string; type: string; name: string }>
+  ) => {
+    console.log('[usePropertyMutations] createProperty called');
+    console.log('[usePropertyMutations] propertyData:', propertyData);
+    console.log('[usePropertyMutations] images count:', images.length);
+    
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      console.log('[usePropertyMutations] Getting access token...');
+      const token = await getAccessToken();
+      
+      if (!token) {
+        console.error('[usePropertyMutations] No access token available');
+        setError('Not authenticated');
+        return null;
+      }
+
+      console.log('[usePropertyMutations] Token obtained, calling API...');
+      const response = await Api.Properties.create(token, propertyData, images);
+      
+      console.log('[usePropertyMutations] API response:', response);
+      
+      if (response.error) {
+        console.error('[usePropertyMutations] API returned error:', response.error);
+        setError(response.error);
+        return null;
+      }
+      
+      console.log('[usePropertyMutations] Property created successfully:', response.data);
+      return response.data;
+    } catch (err) {
+      console.error('[usePropertyMutations] Exception:', err);
+      setError(err instanceof Error ? err.message : 'Failed to create property');
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [getAccessToken]);
+
+  const updateProperty = useCallback(async (
+    id: number,
+    propertyData: any,
+    images?: File[]
   ) => {
     setIsLoading(true);
     setError(null);
@@ -221,32 +369,7 @@ export function usePropertyMutations() {
         return null;
       }
 
-      const response = await Api.Properties.create(token, data);
-      if (response.error) {
-        setError(response.error);
-        return null;
-      }
-      return response.data;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create property');
-      return null;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [getAccessToken]);
-
-  const updateProperty = useCallback(async (id: string, data: Partial<Property>) => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const token = await getAccessToken();
-      if (!token) {
-        setError('Not authenticated');
-        return null;
-      }
-
-      const response = await Api.Properties.update(token, id, data);
+      const response = await Api.Properties.update(token, id, propertyData, images);
       if (response.error) {
         setError(response.error);
         return null;
@@ -260,7 +383,7 @@ export function usePropertyMutations() {
     }
   }, [getAccessToken]);
 
-  const deleteProperty = useCallback(async (id: string) => {
+  const deleteProperty = useCallback(async (id: number) => {
     setIsLoading(true);
     setError(null);
 
