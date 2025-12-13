@@ -83,3 +83,6 @@ Roomify_front/app-example
 Roomify_front//ios
 Roomify_front//android
 
+uploads/*
+
+src/main/resources/application.properties
