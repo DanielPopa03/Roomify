@@ -1,11 +1,11 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import React from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Header, Card, Avatar } from '@/components/ui';
-import { Blue, Neutral, Typography, Spacing, BorderRadius, Shadows } from '@/constants/theme';
+import { Avatar, Card } from '@/components/ui';
+import { Blue, BorderRadius, Neutral, Shadows, Spacing, Typography } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 
 // Mock dashboard stats
@@ -163,7 +163,7 @@ export default function AdminDashboardScreen() {
                 {/* Switch Role */}
                 <TouchableOpacity 
                     style={styles.switchRoleButton}
-                    onPress={() => router.replace('/role-selection')}
+                    onPress={() => router.replace('/')}
                 >
                     <Ionicons name="swap-horizontal" size={20} color={Blue[600]} />
                     <Text style={styles.switchRoleText}>Switch Role</Text>
