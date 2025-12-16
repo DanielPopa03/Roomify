@@ -163,7 +163,7 @@ export default function AdminDashboardScreen() {
                 {/* Switch Role */}
                 <TouchableOpacity 
                     style={styles.switchRoleButton}
-                    onPress={() => router.replace('/(role-selection)')}
+                    onPress={() => router.replace('/role-selection')}
                 >
                     <Ionicons name="swap-horizontal" size={20} color={Blue[600]} />
                     <Text style={styles.switchRoleText}>Switch Role</Text>

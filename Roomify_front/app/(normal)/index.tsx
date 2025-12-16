@@ -95,13 +95,15 @@ export default function BrowseScreen() {
     const [currentIndex, setCurrentIndex] = useState(0);
     const [currentImageIndex, setCurrentImageIndex] = useState(0);
     const [isGalleryVisible, setIsGalleryVisible] = useState(false);
+
+    const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
     
     // Update properties when API data arrives
     useEffect(() => {
         if (apiProperties && apiProperties.length > 0) {
             setProperties(apiProperties.map(p => ({
                 id: p.id.toString(),
-                images: p.images?.map(img => img.url) || ['https://images.unsplash.com/photo-1568605114967-8130f3a36994'],
+                images: p.images?.map(img => img.url.replace('localhost', MY_IP).replace('127.0.0.1', MY_IP)) || ['https://images.unsplash.com/photo-1568605114967-8130f3a36994'],
                 title: p.title,
                 price: p.price,
                 location: p.address,
@@ -338,6 +340,20 @@ export default function BrowseScreen() {
                             style={styles.cardImage}
                             resizeMode="cover"
                         />
+
+                        <View style={{
+                            position: 'absolute',
+                            top: 50,
+                            left: 10,
+                            right: 10,
+                            backgroundColor: 'rgba(0,0,0,0.8)',
+                            padding: 10,
+                            zIndex: 9999
+                        }}>
+                            <Text style={{ color: 'yellow', fontWeight: 'bold', fontSize: 16 }}>
+                                DEBUG URL: {currentProperty.images?.[0] || 'No URL found'}
+                            </Text>
+                        </View>
                         
                         {/* Image Gradient Overlay */}
                         <LinearGradient

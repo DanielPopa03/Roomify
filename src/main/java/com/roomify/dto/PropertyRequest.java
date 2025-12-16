@@ -20,4 +20,7 @@ public class PropertyRequest {
 
     private List<Long> deletedImageIds;
     private List<String> orderedIdentifiers;
+
+    private Double latitude;
+    private Double longitude;
 }

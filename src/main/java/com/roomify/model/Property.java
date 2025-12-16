@@ -72,4 +72,10 @@ public class Property {
     @OrderBy("orderIndex ASC")
     @Builder.Default
     private List<PropertyImage> images = new ArrayList<>();
+
+    @Column(name = "latitude")
+    private Double latitude;
+
+    @Column(name = "longitude")
+    private Double longitude;
 }

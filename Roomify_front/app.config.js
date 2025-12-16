@@ -10,8 +10,10 @@ export default {
     newArchEnabled: true,
     ios: {
       supportsTablet: true,
+      bundleIdentifier: "com.roomify.front"
     },
     android: {
+      package: "com.roomify.front",
       adaptiveIcon: {
         backgroundColor: "#E6F4FE",
         foregroundImage: "./assets/images/android-icon-foreground.png",
@@ -39,7 +41,30 @@ export default {
           },
         },
       ],
-      "expo-build-properties",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      // 👇 ADD THIS BLOCK 👇
+      [
+        "react-native-maps",
+        {
+          // A fake key to satisfy the build requirement.
+          // It prevents the "your API key" crash.
+          "apiKey": "AIzaSyFakeKeyForOSM_DoNotUse"
+        }
+      ],
+      // 👆 END ADDITION 👆
+      [
+        "react-native-auth0",
+        {
+          domain: process.env.EXPO_PUBLIC_AUTH0_DOMAIN
+        },
+      ]
     ],
     experiments: {
       typedRoutes: true,
