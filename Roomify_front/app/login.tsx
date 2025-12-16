@@ -18,13 +18,6 @@ export default function LoginScreen() {
     }
   }, [isAuthenticated]);
 
-  // Redirect to token-setup on mobile if error about token
-  React.useEffect(() => {
-    if (Platform.OS !== 'web' && error && (error.message.includes('auth token') || error.message.includes('set up mobile'))) {
-      router.push('/token-setup');
-    }
-  }, [error]);
-
   const onLogin = async () => {
     try {
       await login();

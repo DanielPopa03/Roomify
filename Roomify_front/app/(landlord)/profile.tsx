@@ -58,7 +58,7 @@ export default function LandlordProfileScreen() {
                 { text: 'Cancel', style: 'cancel' },
                 { 
                     text: 'Switch', 
-                    onPress: () => router.replace('/role-selection')
+                    onPress: () => router.replace('/')
                 }
             ]
         );

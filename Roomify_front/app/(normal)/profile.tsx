@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Platform } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import React, { useState } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Header, Button, Input, Avatar, Card } from '@/components/ui';
-import { Blue, Neutral, Typography, Spacing, BorderRadius, Shadows } from '@/constants/theme';
+import { Avatar, Button, Card, Input } from '@/components/ui';
+import { Blue, BorderRadius, Neutral, Spacing, Typography } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 
 export default function ProfileScreen() {
@@ -33,22 +33,9 @@ export default function ProfileScreen() {
         Alert.alert('Success', 'Profile updated successfully!');
     };
     
-    const handleLogout = () => {
-        Alert.alert(
-            'Logout',
-            'Are you sure you want to logout?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                { 
-                    text: 'Logout', 
-                    style: 'destructive',
-                    onPress: () => {
-                        logout();
-                        router.replace('/login');
-                    }
-                }
-            ]
-        );
+    const handleLogout = async () => {
+        await logout();
+        router.replace('/login');
     };
     
     const handleSwitchRole = () => {
@@ -59,7 +46,7 @@ export default function ProfileScreen() {
                 { text: 'Cancel', style: 'cancel' },
                 { 
                     text: 'Switch', 
-                    onPress: () => router.replace('/role-selection')
+                    onPress: () => router.replace('/')
                 }
             ]
         );

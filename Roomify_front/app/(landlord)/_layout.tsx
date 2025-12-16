@@ -5,10 +5,12 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { Blue, Neutral } from '@/constants/theme';
+import { RoleGuard } from '@/components/roleguard';
 
 export default function LandlordLayout() {
     return (
-        <Tabs
+        <RoleGuard allowedRoles={['landlord']}>
+            <Tabs
             screenOptions={{
                 tabBarActiveTintColor: Blue[600],
                 tabBarInactiveTintColor: Neutral[400],
@@ -88,6 +90,8 @@ export default function LandlordLayout() {
                     title: 'Edit Property',
                 }}
             />
-        </Tabs>
+            </Tabs>
+        </RoleGuard>
+        
     );
 }

@@ -5,10 +5,12 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { Blue, Neutral } from '@/constants/theme';
+import { RoleGuard } from '@/components/roleguard';
 
 export default function AdminLayout() {
     return (
-        <Tabs
+        <RoleGuard allowedRoles={['admin']}>
+            <Tabs
             screenOptions={{
                 tabBarActiveTintColor: Blue[600],
                 tabBarInactiveTintColor: Neutral[400],
@@ -72,6 +74,8 @@ export default function AdminLayout() {
                     ),
                 }}
             />
-        </Tabs>
+            </Tabs>
+        </RoleGuard>
+        
     );
 }
