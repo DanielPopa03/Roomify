@@ -52,6 +52,8 @@ export default function LandlordPropertiesScreen() {
     
     const [properties, setProperties] = useState<any[]>([]);
     const [refreshing, setRefreshing] = useState(false);
+
+    const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
     
     // Debug: Track mount/unmount to detect navigation issues
     useEffect(() => {
@@ -80,7 +82,7 @@ export default function LandlordPropertiesScreen() {
             // Map API data to UI format - REPLACE state entirely
             const mappedProperties = apiProperties.map(p => ({
                 id: p.id.toString(),
-                images: p.images?.map(img => img.url) || ['https://images.unsplash.com/photo-1568605114967-8130f3a36994'],
+                images: p.images?.map(img => img.url.replace('localhost', MY_IP).replace('127.0.0.1', MY_IP)) || ['https://images.unsplash.com/photo-1568605114967-8130f3a36994'],
                 title: p.title,
                 price: p.price,
                 location: p.address,

@@ -21,11 +21,13 @@ import java.util.stream.Collectors;
 public class PropertyService {
 
     private final PropertyRepository propertyRepository;
+    private final GeocodingService geocodingService;
     private final Path rootLocation = Paths.get("uploads");
     private static final int MAX_IMAGES = 7;
 
-    public PropertyService(PropertyRepository propertyRepository) {
+    public PropertyService(PropertyRepository propertyRepository, GeocodingService geocodingService) {
         this.propertyRepository = propertyRepository;
+        this.geocodingService = geocodingService;
         initStorage();
     }
 
@@ -101,6 +103,25 @@ public class PropertyService {
         }
     }
 
+    private void resolveLocationLogic(PropertyRequest request) {
+        // Call the geocoding service to fill in the blanks
+        GeocodingService.LocationResult result = geocodingService.resolveLocation(
+                request.getAddress(),
+                request.getLatitude(),
+                request.getLongitude()
+        );
+
+        // Update the request object with the deduced data
+        request.setAddress(result.address);
+        request.setLatitude(result.latitude);
+        request.setLongitude(result.longitude);
+
+        // Validation: If we still don't have an address, we can't save because DB requires it.
+        if (request.getAddress() == null || request.getAddress().isBlank()) {
+            throw new RuntimeException("Address is required and could not be deduced from coordinates.");
+        }
+    }
+
     @Transactional
     public Property createProperty(PropertyRequest request, List<MultipartFile> files, String ownerId) {
         int newFilesCount = (files == null) ? 0 : files.size();
@@ -110,6 +131,9 @@ public class PropertyService {
 
         Property property = new Property();
         property.setOwnerId(ownerId);
+
+        resolveLocationLogic(request);
+
         updateEntityFromRequest(property, request);
 
         // 1. Upload new files
@@ -269,6 +293,12 @@ public class PropertyService {
         property.setPrice(request.getPrice());
         property.setSurface(request.getSurface());
         property.setAddress(request.getAddress());
+
+        // 👇 ADD THESE MISSING LINES 👇
+        property.setLatitude(request.getLatitude());
+        property.setLongitude(request.getLongitude());
+        // 👆 This saves the deduced location to the DB 👆
+
         property.setDescription(request.getDescription());
         property.setNumberOfRooms(request.getNumberOfRooms());
         property.setHasExtraBathroom(request.getHasExtraBathroom() != null ? request.getHasExtraBathroom() : false);

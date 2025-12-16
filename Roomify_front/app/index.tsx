@@ -47,7 +47,7 @@ export default function Index() {
   const userRole = backendUser?.role?.name?.toLowerCase() || role;
 
   if (!userRole) {
-    return <Redirect href="/(role-selection)" />;
+    return <Redirect href="/role-selection" />;
   }
 
   // Redirect based on role
@@ -59,5 +59,5 @@ export default function Index() {
     return <Redirect href="/(admin)" />;
   }
 
-  return <Redirect href="/(role-selection)" />;
+  return <Redirect href="/role-selection" />;
 }

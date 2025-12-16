@@ -59,7 +59,7 @@ export default function ProfileScreen() {
                 { text: 'Cancel', style: 'cancel' },
                 { 
                     text: 'Switch', 
-                    onPress: () => router.replace('/(role-selection)')
+                    onPress: () => router.replace('/role-selection')
                 }
             ]
         );

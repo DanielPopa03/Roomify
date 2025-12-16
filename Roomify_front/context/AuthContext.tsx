@@ -123,6 +123,8 @@ export function AuthProvider({ children, domain, clientId }: AuthProviderProps) 
       <Auth0Provider
           domain={authDomain}
           clientId={authClientId}
+          // @ts-ignore: Force this through in case the web client uses it as a default
+          audience="https://roomify-api"
       >
         <AuthContextContent>{children}</AuthContextContent>
       </Auth0Provider>

@@ -18,7 +18,7 @@ export default function RootLayout() {
             <Stack screenOptions={{ headerShown: false }}>
               <Stack.Screen name="index" />
               <Stack.Screen name="login" />
-              <Stack.Screen name="(role-selection)" />
+              <Stack.Screen name="role-selection" />
               <Stack.Screen name="(normal)" />
               <Stack.Screen name="(landlord)" />
               <Stack.Screen name="(admin)" />

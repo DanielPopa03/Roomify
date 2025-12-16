@@ -7,7 +7,7 @@ import { Platform } from 'react-native';
 
 // Web uses localhost, mobile uses host IP from env
 const getApiUrl = () => {
-  const envUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8080';
+  const envUrl = ('http://' + process.env.EXPO_PUBLIC_BACKEND_IP + ':8080') || 'http://localhost:8080';
 
   // On web, always use localhost
   if (Platform.OS === 'web') {
