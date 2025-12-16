@@ -54,7 +54,7 @@ function AuthContextContent({ children }: { children: ReactNode }) {
       const accessToken = await getAccessToken();
       if (!accessToken) return;
 
-      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8080';
+      const apiUrl = ('http://' + process.env.EXPO_PUBLIC_BACKEND_IP + ':8080') || 'http://localhost:8080';
       const response = await fetch(`${apiUrl}/user/authorize`, {
         method: 'POST',
         headers: {
