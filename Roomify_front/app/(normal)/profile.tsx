@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import React, { useState, useEffect } from 'react';
+import { useRouter, useFocusEffect } from 'expo-router'; // Added useFocusEffect
+import React, { useState, useEffect, useCallback } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -12,17 +12,14 @@ import { useAuth } from '@/context/AuthContext';
 export default function ProfileScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    const { user, logout, getAccessToken } = useAuth();
+    const { user, dbUser, logout, getAccessToken, refreshUser } = useAuth();
 
     // --- STATE ---
-
-    // 1. Current Form Values (What you see in inputs)
     const [fullName, setFullName] = useState('');
     const [bio, setBio] = useState('');
     const [phone, setPhone] = useState('');
     const [email, setEmail] = useState('');
 
-    // 2. Original Values (Snapshot for Cancel)
     const [originalData, setOriginalData] = useState({
         name: '',
         bio: '',
@@ -30,82 +27,41 @@ export default function ProfileScreen() {
         email: ''
     });
 
-    // 3. UI & Errors
     const [phoneError, setPhoneError] = useState<string | null>(null);
     const [emailError, setEmailError] = useState<string | null>(null);
     const [isEditing, setIsEditing] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [stats, setStats] = useState({ propertiesViewed: 0, interests: 0, matches: 0 });
 
     const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
 
-    // --- REGEX ---
     const PHONE_VALIDATION_REGEX = /^[+]?[0-9\s\-\(\)]{7,20}$/;
     const ALLOWED_PHONE_CHARS = /[0-9\s\+\-\(\)]/g;
     const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-    // --- FETCH DATA ---
+    // --- SYNC WITH CONTEXT ---
+    // Every time the screen is focused, pull fresh data from the DB
+    useFocusEffect(
+        useCallback(() => {
+            refreshUser();
+        }, [])
+    );
+
     useEffect(() => {
-        const fetchProfileData = async () => {
-            const userId = user?.sub;
-            if (!userId) {
-                setIsLoading(false);
-                return;
-            }
-
-            try {
-                const token = await getAccessToken();
-                const response = await fetch(`http://${MY_IP}:8080/users/${userId}`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-
-                    // Prepare data object
-                    const loadedData = {
-                        name: data.firstName || data.name || user?.name || '',
-                        bio: data.bio || '',
-                        phone: data.phoneNumber || '',
-                        email: data.email || user?.email || ''
-                    };
-
-                    // Set Form Fields
-                    setFullName(loadedData.name);
-                    setBio(loadedData.bio);
-                    setPhone(loadedData.phone);
-                    setEmail(loadedData.email);
-
-                    // Set Snapshot (for Cancel)
-                    setOriginalData(loadedData);
-
-                    setStats({
-                        propertiesViewed: data.stats?.viewed || 0,
-                        interests: data.stats?.interested || 0,
-                        matches: data.stats?.matches || 0
-                    });
-                } else {
-                    // Fallback
-                    const fallbackData = {
-                        name: user?.name || '',
-                        bio: '',
-                        phone: '',
-                        email: user?.email || ''
-                    };
-                    setFullName(fallbackData.name);
-                    setEmail(fallbackData.email);
-                    setOriginalData(fallbackData);
-                }
-            } catch (error) {
-                console.error("Failed to fetch profile:", error);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        fetchProfileData();
-    }, [user, MY_IP]);
+        if (dbUser && !isEditing) {
+            const data = {
+                name: dbUser.firstName || user?.name || '',
+                bio: dbUser.bio || '',
+                phone: dbUser.phoneNumber || '',
+                email: dbUser.email || user?.email || ''
+            };
+            setFullName(data.name);
+            setBio(data.bio);
+            setPhone(data.phone);
+            setEmail(data.email);
+            setOriginalData(data);
+        }
+    }, [dbUser, isEditing]);
 
     // --- HANDLERS ---
 
@@ -126,40 +82,25 @@ export default function ProfileScreen() {
         else setEmailError(null);
     };
 
-    // --- CANCEL BUTTON LOGIC ---
     const handleCancel = () => {
-        // 1. Revert values to the 'originalData' snapshot
         setFullName(originalData.name);
         setBio(originalData.bio);
         setPhone(originalData.phone);
         setEmail(originalData.email);
-
-        // 2. Clear any validation errors
         setPhoneError(null);
         setEmailError(null);
-
-        // 3. Exit Edit Mode
         setIsEditing(false);
     };
 
-    // --- SAVE BUTTON LOGIC ---
     const handleSave = async () => {
         const userId = user?.sub;
         if (!userId) return;
-
-        if (!email || email.trim() === '') {
-            setEmailError("Email is required.");
-            Alert.alert("Error", "Email cannot be empty.");
-            return;
-        }
-
-        if (phoneError || emailError) return;
+        if (phoneError || emailError || !email) return;
 
         setIsSaving(true);
-
         try {
             const token = await getAccessToken();
-            const response = await fetch(`http://${MY_IP}:8080/users/${userId}`, {
+            const response = await fetch(`http://${MY_IP}:8080/user/${userId}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
@@ -174,25 +115,41 @@ export default function ProfileScreen() {
             });
 
             if (response.ok) {
-                // Update the snapshot so the NEXT cancel reverts to these new values
-                setOriginalData({
-                    name: fullName,
-                    bio: bio,
-                    phone: phone,
-                    email: email
-                });
-
+                await refreshUser();
                 setIsEditing(false);
                 Alert.alert('Success', 'Profile updated successfully!');
             } else {
-                const errText = await response.text();
-                Alert.alert('Error', 'Update failed. ' + (errText ? errText : "Check your inputs."));
+                Alert.alert('Error', 'Update failed.');
             }
         } catch (error) {
-            console.error(error);
-            Alert.alert('Error', 'Network error while saving.');
+            Alert.alert('Error', 'Network error.');
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handleDeleteAccount = async () => {
+        const userId = user?.sub;
+        if (!userId) return;
+
+        setIsSaving(true);
+        try {
+            const token = await getAccessToken();
+            const response = await fetch(`http://${MY_IP}:8080/user/${userId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                await logout();
+                router.replace('/login');
+            } else {
+                setIsSaving(false);
+                console.error("Deletion failed");
+            }
+        } catch (error) {
+            setIsSaving(false);
+            console.error("Network error on delete", error);
         }
     };
 
@@ -201,7 +158,7 @@ export default function ProfileScreen() {
         router.replace('/login');
     };
 
-    if (isLoading) {
+    if (!dbUser && !user) {
         return (
             <View style={[styles.container, styles.centered]}>
                 <ActivityIndicator size="large" color={Blue[600]} />
@@ -219,7 +176,6 @@ export default function ProfileScreen() {
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Profile</Text>
 
-                {/* EDIT / CANCEL BUTTON */}
                 <TouchableOpacity
                     onPress={isEditing ? handleCancel : () => setIsEditing(true)}
                     disabled={isSaving}
@@ -240,7 +196,6 @@ export default function ProfileScreen() {
                                 </TouchableOpacity>
                             )}
                         </View>
-                        {/* Display snapshot data when NOT editing to prevent UI jumping while typing */}
                         <Text style={styles.userName}>{isEditing ? fullName : originalData.name || 'Guest'}</Text>
                         <Text style={styles.userEmail}>{isEditing ? email : originalData.email}</Text>
 
@@ -286,9 +241,7 @@ export default function ProfileScreen() {
                             icon={<Ionicons name="mail-outline" size={18} color={Neutral[400]} />}
                             style={emailError ? { borderColor: '#EF4444', borderWidth: 1 } : {}}
                         />
-                        {(emailError || (isEditing && email.trim() === '')) && (
-                            <Text style={styles.errorText}>{emailError || "Email is required"}</Text>
-                        )}
+                        {emailError && isEditing && <Text style={styles.errorText}>{emailError}</Text>}
                     </View>
 
                     <View>
@@ -302,9 +255,7 @@ export default function ProfileScreen() {
                             icon={<Ionicons name="call-outline" size={18} color={Neutral[400]} />}
                             style={phoneError ? { borderColor: '#EF4444', borderWidth: 1 } : {}}
                         />
-                        {phoneError && isEditing && (
-                            <Text style={styles.errorText}>{phoneError}</Text>
-                        )}
+                        {phoneError && isEditing && <Text style={styles.errorText}>{phoneError}</Text>}
                     </View>
 
                     <Input
@@ -326,7 +277,6 @@ export default function ProfileScreen() {
                             style={{
                                 marginTop: Spacing.md,
                                 backgroundColor: isSaveDisabled ? Neutral[300] : Blue[600],
-                                opacity: isSaveDisabled ? 0.7 : 1
                             }}
                         />
                     )}
@@ -336,6 +286,17 @@ export default function ProfileScreen() {
                     <Ionicons name="log-out-outline" size={20} color="#EF4444" />
                     <Text style={styles.logoutText}>Logout</Text>
                 </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={styles.deleteButton}
+                    onPress={handleDeleteAccount}
+                    disabled={isSaving}
+                >
+                    <Text style={styles.deleteButtonText}>
+                        {isSaving ? "Processing..." : "Delete Account"}
+                    </Text>
+                </TouchableOpacity>
+
                 <Text style={styles.version}>Roomify v1.0.0</Text>
             </ScrollView>
         </View>
@@ -365,13 +326,10 @@ const styles = StyleSheet.create({
     statDivider: { width: 1, height: 30, backgroundColor: Neutral[200] },
     infoCard: { padding: Spacing.lg, marginHorizontal: Spacing.base, marginBottom: Spacing.lg },
     sectionTitle: { fontSize: Typography.size.sm, fontWeight: Typography.weight.semibold, color: Neutral[500], textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: Spacing.sm, marginLeft: Spacing.lg },
-    preferencesCard: { marginHorizontal: Spacing.base, marginBottom: Spacing.lg, overflow: 'hidden' },
-    preferenceItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: Spacing.sm, paddingHorizontal: Spacing.md, borderBottomWidth: 1, borderBottomColor: Neutral[100] },
-    preferenceLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, flex: 1 },
-    iconCircle: { width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
-    preferenceText: { fontSize: Typography.size.base, color: Neutral[800], fontWeight: Typography.weight.medium },
     logoutButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, marginHorizontal: Spacing.base, marginTop: Spacing.md, paddingVertical: Spacing.md, borderRadius: BorderRadius.lg, backgroundColor: '#FEE2E2' },
     logoutText: { fontSize: Typography.size.base, fontWeight: Typography.weight.semibold, color: '#EF4444' },
+    deleteButton: { alignItems: 'center', marginTop: Spacing.md, padding: Spacing.sm },
+    deleteButtonText: { color: Neutral[400], textDecorationLine: 'underline', fontSize: 12 },
     version: { textAlign: 'center', fontSize: Typography.size.sm, color: Neutral[400], marginTop: Spacing.lg },
     errorText: { color: '#EF4444', fontSize: Typography.size.xs, marginTop: 4, marginLeft: 4 }
 });
