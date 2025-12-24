@@ -1,23 +1,25 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { 
-    View, 
-    Text, 
-    Image, 
-    StyleSheet, 
-    Dimensions, 
+import React, { useState, useRef, useCallback, useEffect, memo } from 'react';
+import {
+    View,
+    Text,
+    Image,
+    StyleSheet,
+    Dimensions,
     Animated,
     PanResponder,
     TouchableOpacity,
     ActivityIndicator,
     ScrollView,
     Platform,
+    Modal
 } from 'react-native';
+import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 
-import { Header, SwipeButtons, Card, EmptyState, FilterButton, Avatar, ImageGalleryModal } from '@/components/ui';
+import { SwipeButtons, EmptyState, ImageGalleryModal } from '@/components/ui';
 import { Blue, Neutral, Typography, Spacing, BorderRadius, Shadows } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useProperties, useInteractions } from '@/hooks/useApi';
@@ -25,681 +27,381 @@ import { useProperties, useInteractions } from '@/hooks/useApi';
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
 const CARD_WIDTH = SCREEN_WIDTH - (Spacing.md * 2);
-const CARD_HEIGHT = SCREEN_HEIGHT * 0.7;
+const CARD_HEIGHT = SCREEN_HEIGHT * 0.78;
 
-// Mock properties data (fallback when API is unavailable)
-const MOCK_PROPERTIES = [
-    {
-        id: '1',
-        images: [
-            'https://images.unsplash.com/photo-1568605114967-8130f3a36994?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80',
-            'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80',
-            'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80',
-        ],
-        title: 'Modern Downtown Apartment',
-        price: 1200,
-        location: 'Manhattan, New York',
-        description: 'Beautiful 2-bedroom apartment in the heart of the city. Close to subway and parks. Newly renovated with modern appliances.',
-        bedrooms: 2,
-        bathrooms: 1,
-        area: 850,
-        amenities: ['Parking', 'Gym', 'Pet Friendly', 'Laundry'],
-        landlord: { name: 'John Smith', avatar: 'https://randomuser.me/api/portraits/men/32.jpg', rating: 4.8 },
-    },
-    {
-        id: '2',
-        images: [
-            'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80',
-            'https://images.unsplash.com/photo-1493809842364-78817add7ffb?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80',
-        ],
-        title: 'Cozy Studio Near Park',
-        price: 950,
-        location: 'Brooklyn, New York',
-        description: 'Charming studio with lots of natural light. Walking distance to Prospect Park.',
-        bedrooms: 1,
-        bathrooms: 1,
-        area: 450,
-        amenities: ['Natural Light', 'Park View', 'Doorman'],
-        landlord: { name: 'Sarah Johnson', avatar: 'https://randomuser.me/api/portraits/women/44.jpg', rating: 4.9 },
-    },
-    {
-        id: '3',
-        images: [
-            'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80',
-            'https://images.unsplash.com/photo-1560185127-6ed189bf02f4?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80',
-            'https://images.unsplash.com/photo-1484154218962-a197022b5858?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80',
-        ],
-        title: 'Spacious Family Home',
-        price: 2500,
-        location: 'Queens, New York',
-        description: 'Perfect for families. Large backyard, garage, and excellent school district.',
-        bedrooms: 4,
-        bathrooms: 2,
-        area: 2200,
-        amenities: ['Backyard', 'Garage', 'Storage', 'Near Schools'],
-        landlord: { name: 'Michael Brown', avatar: 'https://randomuser.me/api/portraits/men/75.jpg', rating: 4.7 },
-    },
-];
+// --- 1. MEMOIZED CARD COMPONENT ---
+const PropertyCard = memo(({ property, isTopCard, onOpenGallery, onOpenMap }: any) => {
+    return (
+        <View style={styles.cardInner}>
+            <TouchableOpacity
+                style={styles.imageContainer}
+                onPress={onOpenGallery}
+                activeOpacity={isTopCard ? 0.95 : 1}
+                disabled={!isTopCard}
+            >
+                <Image source={{ uri: property.images?.[0] }} style={styles.cardImage} resizeMode="cover" />
+                <LinearGradient colors={['rgba(0,0,0,0.2)', 'transparent', 'transparent', 'rgba(0,0,0,0.6)']} style={styles.imageGradient} />
+                <View style={styles.priceBadge}>
+                    <Text style={styles.priceBadgeText}>€{property.price}</Text>
+                    <Text style={styles.priceBadgeUnit}>/mo</Text>
+                </View>
+            </TouchableOpacity>
+
+            <View style={styles.contentWrapper}>
+                <ScrollView
+                    style={styles.scrollContent}
+                    showsVerticalScrollIndicator={isTopCard}
+                    scrollEnabled={isTopCard}
+                    nestedScrollEnabled={true}
+                >
+                    <View style={styles.headerSection}>
+                        <Text style={styles.title} numberOfLines={2}>{property.title}</Text>
+                        <View style={styles.addressRow}>
+                            <Ionicons name="location" size={16} color={Neutral[500]} />
+                            <Text style={styles.location} numberOfLines={1}>{property.location}</Text>
+                        </View>
+                        <TouchableOpacity
+                            style={styles.mapPill}
+                            onPress={onOpenMap}
+                            disabled={!isTopCard}
+                        >
+                            <Ionicons name="map-outline" size={14} color={Blue[600]} />
+                            <Text style={styles.mapPillText}>See on Map</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.specsGrid}>
+                        <View style={styles.specItem}>
+                            <Ionicons name="grid-outline" size={18} color={Blue[600]} />
+                            <Text style={styles.specText}>{property.rooms} Rooms</Text>
+                        </View>
+                        <View style={styles.verticalDivider} />
+                        <View style={styles.specItem}>
+                            <Ionicons name="water-outline" size={18} color={Blue[600]} />
+                            <Text style={styles.specText}>{property.bathrooms} Bath</Text>
+                        </View>
+                        <View style={styles.verticalDivider} />
+                        <View style={styles.specItem}>
+                            <Ionicons name="resize-outline" size={18} color={Blue[600]} />
+                            <Text style={styles.specText}>{property.area} m²</Text>
+                        </View>
+                        {property.layoutType && (
+                            <>
+                                <View style={styles.verticalDivider} />
+                                <View style={styles.specItem}>
+                                    <Ionicons name="home-outline" size={18} color={Blue[600]} />
+                                    <Text style={styles.specText} numberOfLines={1}>{property.layoutType}</Text>
+                                </View>
+                            </>
+                        )}
+                    </View>
+
+                    <View style={styles.descriptionContainer}>
+                        <Text style={styles.sectionTitle}>About this property</Text>
+                        <Text style={styles.description}>
+                            {property.description}
+                        </Text>
+                    </View>
+
+                    {property.tenantAmenities.length > 0 && (
+                        <View style={styles.sectionRow}>
+                            <View style={styles.sectionIcon}>
+                                <Ionicons name="people" size={16} color={Neutral[500]} />
+                            </View>
+                            <View style={styles.inlineTagsContainer}>
+                                <Text style={styles.sectionLabelInline}>Preferred:</Text>
+                                {property.tenantAmenities.map((item: string, i: number) => (
+                                    <View key={i} style={styles.tenantTag}>
+                                        <Text style={styles.tenantTagText}>{item}</Text>
+                                    </View>
+                                ))}
+                            </View>
+                        </View>
+                    )}
+
+                    {property.generalAmenities.length > 0 && (
+                        <View style={styles.sectionRow}>
+                            <View style={styles.sectionIcon}>
+                                <Ionicons name="star" size={16} color={Neutral[500]} />
+                            </View>
+                            <View style={styles.inlineTagsContainer}>
+                                {property.generalAmenities.map((item: string, i: number) => (
+                                    <View key={i} style={styles.amenityTag}>
+                                        <Text style={styles.amenityText}>{item}</Text>
+                                    </View>
+                                ))}
+                            </View>
+                        </View>
+                    )}
+                    <View style={{ height: 20 }} />
+                </ScrollView>
+            </View>
+        </View>
+    );
+});
+
+// --- HELPER: Map Modal ---
+const PropertyMapModal = ({ visible, onClose, latitude, longitude, address }: any) => {
+    const insets = useSafeAreaInsets();
+    if (!visible) return null;
+    const mapHtml = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" /><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style> body, html, #map { height: 100%; width: 100%; margin: 0; } </style></head><body><div id="map"></div><script>var map = L.map('map').setView([${latitude}, ${longitude}], 15);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap'}).addTo(map);L.marker([${latitude}, ${longitude}]).addTo(map).bindPopup("${address}").openPopup();</script></body></html>`;
+
+    return (
+        <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+            <View style={{ flex: 1, backgroundColor: 'white' }}>
+                <View style={[styles.modalHeader, { paddingTop: Platform.OS === 'ios' ? 20 : 10 }]}>
+                    <Text style={styles.modalTitle}>Location</Text>
+                    <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                        <Ionicons name="close" size={24} color={Neutral[900]} />
+                    </TouchableOpacity>
+                </View>
+                <View style={{ flex: 1 }}>
+                    {Platform.OS === 'web' ? (
+                        <iframe srcDoc={mapHtml} style={{ width: '100%', height: '100%', border: 'none' }} title="map" />
+                    ) : (
+                        <WebView originWhitelist={['*']} source={{ html: mapHtml }} style={{ flex: 1 }} />
+                    )}
+                </View>
+                <View style={[styles.modalFooter, { paddingBottom: insets.bottom + 10 }]}>
+                    <Ionicons name="location" size={20} color={Blue[600]} />
+                    <Text style={styles.modalAddress}>{address}</Text>
+                </View>
+            </View>
+        </Modal>
+    );
+};
+
+const formatEnumString = (str: string) => {
+    if (!str) return '';
+    return str.toLowerCase().split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+};
 
 export default function BrowseScreen() {
-    const router = useRouter();
     const insets = useSafeAreaInsets();
     const { user } = useAuth();
-    
-    // API hooks
-    const { data: apiProperties, isLoading, error, refetch } = useProperties();
+    const { data: apiProperties, isLoading, refetch } = useProperties();
     const { expressInterest, pass } = useInteractions();
-    
-    // Use API data or fallback to mock for demo
-    const [properties, setProperties] = useState<any[]>(apiProperties && apiProperties.length > 0 ? [] : MOCK_PROPERTIES);
+
+    const [properties, setProperties] = useState<any[]>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
-    const [currentImageIndex, setCurrentImageIndex] = useState(0);
     const [isGalleryVisible, setIsGalleryVisible] = useState(false);
+    const [isMapVisible, setIsMapVisible] = useState(false);
+
+    // FIX 1: Use State for Position so we can replace it (Flicker Fix)
+    const [position, setPosition] = useState(new Animated.ValueXY());
+
+    // FIX 2: Use Ref to track the *current* position object for PanResponder (Swipe Fix)
+    const positionRef = useRef(position);
+
+    // Keep ref in sync with state
+    useEffect(() => {
+        positionRef.current = position;
+    }, [position]);
 
     const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
-    
-    // Update properties when API data arrives
+
     useEffect(() => {
         if (apiProperties && apiProperties.length > 0) {
-            setProperties(apiProperties.map(p => ({
-                id: p.id.toString(),
-                images: p.images?.map(img => img.url.replace('localhost', MY_IP).replace('127.0.0.1', MY_IP)) || ['https://images.unsplash.com/photo-1568605114967-8130f3a36994'],
-                title: p.title,
-                price: p.price,
-                location: p.address,
-                description: p.description || 'No description available',
-                bedrooms: p.numberOfRooms,
-                bathrooms: p.hasExtraBathroom ? 2 : 1,
-                area: p.surface,
-                amenities: [
-                    ...(p.layoutType ? [p.layoutType] : []),
-                    ...(p.smokerFriendly ? ['Smoker Friendly'] : []),
-                    ...(p.petFriendly ? ['Pet Friendly'] : []),
-                    ...(p.preferredTenants || []),
-                ],
-                landlord: { 
-                    name: 'Property Owner', 
-                    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + p.ownerId,
-                    rating: 4.5 
-                },
-            })));
-            setCurrentIndex(0);
+            const mappedProperties = apiProperties.map(p => {
+                const generalAmenities = [];
+                const tenantAmenities = [];
+                if (p.petFriendly === true) generalAmenities.push('Pet Friendly');
+                if (p.petFriendly === false) generalAmenities.push('No Pets');
+                if (p.smokerFriendly === true) generalAmenities.push('Smoking Allowed');
+                if (p.preferredTenants && Array.isArray(p.preferredTenants)) {
+                    p.preferredTenants.forEach((t: string) => tenantAmenities.push(formatEnumString(t)));
+                }
+                return {
+                    id: p.id.toString(),
+                    images: p.images?.length > 0
+                        ? p.images.map((img: any) => img.url.replace('localhost', MY_IP).replace('127.0.0.1', MY_IP))
+                        : ['https://images.unsplash.com/photo-1568605114967-8130f3a36994'],
+                    title: p.title,
+                    price: p.price,
+                    location: p.address,
+                    description: p.description || 'No description available',
+                    rooms: p.numberOfRooms,
+                    bathrooms: p.hasExtraBathroom ? 2 : 1,
+                    area: p.surface,
+                    layoutType: p.layoutType ? formatEnumString(p.layoutType) : null,
+                    generalAmenities: generalAmenities,
+                    tenantAmenities: tenantAmenities,
+                    landlord: { name: 'Landlord', avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${p.ownerId}` },
+                    latitude: p.latitude || 44.4268,
+                    longitude: p.longitude || 26.1025
+                };
+            });
+            if (properties.length === 0) {
+                setProperties(mappedProperties);
+                setCurrentIndex(0);
+            }
         }
-    }, [apiProperties]);
-    
-    // Reset image index when property changes
-    useEffect(() => {
-        setCurrentImageIndex(0);
-    }, [currentIndex]);
-    
-    const position = useRef(new Animated.ValueXY()).current;
-    const scaleValue = useRef(new Animated.Value(1)).current;
-    
+    }, [apiProperties, MY_IP]);
+
     const currentProperty = properties[currentIndex];
     const nextProperty = properties[currentIndex + 1];
-    
-    const rotate = position.x.interpolate({
-        inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2],
-        outputRange: ['-12deg', '0deg', '12deg'],
-        extrapolate: 'clamp',
-    });
-    
-    const nextCardScale = position.x.interpolate({
-        inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2],
-        outputRange: [1, 0.92, 1],
-        extrapolate: 'clamp',
-    });
-    
-    const nextCardOpacity = position.x.interpolate({
-        inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2],
-        outputRange: [1, 0.6, 1],
-        extrapolate: 'clamp',
-    });
-    
-    const cardStyle = {
-        transform: [{ translateX: position.x }, { translateY: position.y }, { rotate }],
-    };
-    
-    const nextCardStyle = {
-        transform: [{ scale: nextCardScale }],
-        opacity: nextCardOpacity,
-    };
-    
-    const interestedOpacity = position.x.interpolate({
-        inputRange: [0, SCREEN_WIDTH / 4],
-        outputRange: [0, 1],
-        extrapolate: 'clamp',
-    });
-    
-    const notInterestedOpacity = position.x.interpolate({
-        inputRange: [-SCREEN_WIDTH / 4, 0],
-        outputRange: [1, 0],
-        extrapolate: 'clamp',
-    });
-    
+
+    const rotate = position.x.interpolate({ inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2], outputRange: ['-12deg', '0deg', '12deg'], extrapolate: 'clamp' });
+    const nextCardScale = position.x.interpolate({ inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2], outputRange: [1, 0.95, 1], extrapolate: 'clamp' });
+    const nextCardOpacity = position.x.interpolate({ inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2], outputRange: [1, 0.6, 1], extrapolate: 'clamp' });
+
+    const cardStyle = { transform: [{ translateX: position.x }, { translateY: position.y }, { rotate }] };
+    const nextCardStyle = { transform: [{ scale: nextCardScale }], opacity: nextCardOpacity };
+
+    // --- LOGIC ---
+    const swipeCard = useCallback((direction: 'left' | 'right') => {
+        const x = direction === 'right' ? SCREEN_WIDTH + 100 : -SCREEN_WIDTH - 100;
+
+        // Use positionRef.current to ensure we animate the ACTIVE value
+        Animated.spring(positionRef.current, {
+            toValue: { x, y: -50 },
+            useNativeDriver: false,
+            speed: 100
+        }).start(() => {
+            setCurrentIndex(prev => prev + 1);
+
+            // Replaces the value with a fresh one to prevent flicker
+            setPosition(new Animated.ValueXY());
+
+            if (currentProperty) {
+                if (direction === 'right') expressInterest(currentProperty.id);
+                else pass(currentProperty.id);
+            }
+        });
+    }, [currentProperty, expressInterest, pass]);
+
+    const resetPosition = useCallback(() => {
+        Animated.spring(positionRef.current, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
+    }, []);
+
     const panResponder = useRef(
         PanResponder.create({
             onStartShouldSetPanResponder: () => true,
+            onMoveShouldSetPanResponder: (evt, gestureState) => {
+                return Math.abs(gestureState.dx) > 10;
+            },
             onPanResponderMove: (_, gesture) => {
-                position.setValue({ x: gesture.dx, y: gesture.dy });
+                // Use Ref to always drive the current state object
+                positionRef.current.setValue({ x: gesture.dx, y: gesture.dy });
             },
             onPanResponderRelease: (_, gesture) => {
-                if (gesture.dx > SWIPE_THRESHOLD) {
-                    swipeCard('right');
-                } else if (gesture.dx < -SWIPE_THRESHOLD) {
-                    swipeCard('left');
-                } else {
-                    resetPosition();
-                }
+                if (gesture.dx > SWIPE_THRESHOLD) swipeCard('right');
+                else if (gesture.dx < -SWIPE_THRESHOLD) swipeCard('left');
+                else resetPosition();
             },
         })
     ).current;
-    
-    const swipeCard = useCallback((direction: 'left' | 'right') => {
-        const x = direction === 'right' ? SCREEN_WIDTH + 100 : -SCREEN_WIDTH - 100;
-        
-        // Animate card exit with spring effect
-        Animated.spring(position, {
-            toValue: { x, y: direction === 'right' ? -50 : -50 },
-            useNativeDriver: false,
-            speed: 15,
-            bounciness: 3,
-        }).start(() => {
-            position.setValue({ x: 0, y: 0 });
-            setCurrentIndex((prev) => prev + 1);
-            
-            // Call API to record the interaction
-            if (currentProperty) {
-                if (direction === 'right') {
-                    expressInterest(currentProperty.id);
-                } else {
-                    pass(currentProperty.id);
-                }
-            }
-        });
-    }, [currentProperty, position, expressInterest, pass]);
-    
-    const resetPosition = () => {
-        Animated.spring(position, {
-            toValue: { x: 0, y: 0 },
-            useNativeDriver: false,
-        }).start();
-    };
-    
+
     const handleInterested = () => swipeCard('right');
     const handleNotInterested = () => swipeCard('left');
-    
-    // Handle opening image gallery
-    const handleImagePress = () => {
-        setIsGalleryVisible(true);
-    };
-    
-    // Render amenity tags
-    const renderAmenities = () => {
-        if (!currentProperty?.amenities) return null;
-        
-        return (
-            <View style={styles.amenitiesContainer}>
-                <ScrollView 
-                    horizontal 
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.amenitiesContent}
-                >
-                    {currentProperty.amenities.slice(0, 4).map((amenity, index) => (
-                        <View key={index} style={styles.amenityTag}>
-                            <Text style={styles.amenityText}>{amenity}</Text>
-                        </View>
-                    ))}
-                </ScrollView>
-            </View>
-        );
-    };
-    
-    // Loading state
-    if (isLoading) {
-        return (
-            <View style={[styles.container, styles.centered, { paddingTop: insets.top }]}>
-                <Header 
-                    title="Roomify"
-                    user={user}
-                    onProfilePress={() => router.push('/(normal)/profile')}
-                />
-                <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color={Blue[500]} />
-                    <Text style={styles.loadingText}>Finding properties for you...</Text>
-                </View>
-            </View>
-        );
-    }
-    
-    // No more properties
+
+    if (isLoading && properties.length === 0) return <ActivityIndicator style={styles.centered} size="large" color={Blue[500]} />;
+
     if (!currentProperty) {
-        return (
-            <View style={[styles.container, { paddingTop: insets.top }]}>
-                <Header 
-                    title="Roomify"
-                    user={user}
-                    onProfilePress={() => router.push('/(normal)/profile')}
-                    rightAction={<FilterButton onPress={() => console.log('Filter')} />}
-                />
-                <EmptyState 
-                    icon="home-outline"
-                    title="No more properties"
-                    description="You've seen all available properties. Check back later for new listings!"
-                    actionLabel="Refresh"
-                    onAction={() => {
-                        refetch();
-                        setProperties(MOCK_PROPERTIES);
-                        setCurrentIndex(0);
-                    }}
-                />
-            </View>
-        );
+        return <EmptyState icon="home-outline" title="No more properties" actionLabel="Refresh" onAction={() => { setProperties([]); refetch(); }} />;
     }
-    
+
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
-            {/* Header */}
-            <Header 
-                title="Roomify"
-                user={user}
-                onProfilePress={() => router.push('/(normal)/profile')}
-                rightAction={<FilterButton onPress={() => console.log('Filter')} />}
-            />
-            
-            {/* Cards Stack */}
             <View style={styles.cardContainer}>
-                {/* Next Card Preview (behind current card) */}
+
+                {/* BACKGROUND CARD */}
                 {nextProperty && (
-                    <Animated.View style={[styles.card, styles.nextCard, nextCardStyle]}>
-                        <Image
-                            source={{ uri: nextProperty.images?.[0] || 'https://images.unsplash.com/photo-1568605114967-8130f3a36994' }}
-                            style={styles.cardImage}
-                            resizeMode="cover"
-                        />
-                        <LinearGradient
-                            colors={['transparent', 'rgba(0,0,0,0.8)']}
-                            style={styles.imageGradient}
-                        />
+                    <Animated.View
+                        key={nextProperty.id}
+                        style={[styles.card, styles.nextCard, nextCardStyle]}
+                    >
+                        <PropertyCard property={nextProperty} isTopCard={false} />
                     </Animated.View>
                 )}
-                
-                {/* Current Card */}
-                <Animated.View 
-                    style={[styles.card, cardStyle]} 
+
+                {/* FOREGROUND CARD */}
+                <Animated.View
+                    key={currentProperty.id}
+                    style={[styles.card, cardStyle]}
                     {...panResponder.panHandlers}
                 >
-                    {/* Property Image - tap to open gallery */}
-                    <TouchableOpacity 
-                        style={styles.imageContainer} 
-                        onPress={handleImagePress}
-                        activeOpacity={0.95}
-                    >
-                        <Image
-                            source={{ uri: currentProperty.images?.[0] || 'https://images.unsplash.com/photo-1568605114967-8130f3a36994' }}
-                            style={styles.cardImage}
-                            resizeMode="cover"
-                        />
+                    <PropertyCard
+                        property={currentProperty}
+                        isTopCard={true}
+                        onOpenGallery={() => setIsGalleryVisible(true)}
+                        onOpenMap={() => setIsMapVisible(true)}
+                    />
 
-                        <View style={{
-                            position: 'absolute',
-                            top: 50,
-                            left: 10,
-                            right: 10,
-                            backgroundColor: 'rgba(0,0,0,0.8)',
-                            padding: 10,
-                            zIndex: 9999
-                        }}>
-                            <Text style={{ color: 'yellow', fontWeight: 'bold', fontSize: 16 }}>
-                                DEBUG URL: {currentProperty.images?.[0] || 'No URL found'}
-                            </Text>
-                        </View>
-                        
-                        {/* Image Gradient Overlay */}
-                        <LinearGradient
-                            colors={['rgba(0,0,0,0.3)', 'transparent', 'transparent', 'rgba(0,0,0,0.5)']}
-                            locations={[0, 0.2, 0.6, 1]}
-                            style={styles.imageGradient}
-                        />
-                        
-                        {/* Image count badge */}
-                        {currentProperty.images && currentProperty.images.length > 1 && (
-                            <View style={styles.imageCountBadge}>
-                                <Ionicons name="images-outline" size={16} color="#FFFFFF" />
-                                <Text style={styles.imageCountText}>{currentProperty.images.length}</Text>
-                            </View>
-                        )}
-                        
-                        {/* Price Badge on Image */}
-                        <View style={styles.priceBadge}>
-                            <Text style={styles.priceBadgeText}>${currentProperty.price}</Text>
-                            <Text style={styles.priceBadgeUnit}>/mo</Text>
-                        </View>
-                    </TouchableOpacity>
-                    
-                    {/* Swipe Indicators */}
-                    <Animated.View style={[styles.indicator, styles.interestedIndicator, { opacity: interestedOpacity }]}>
+                    <Animated.View style={[styles.indicator, styles.interestedIndicator, { opacity: position.x.interpolate({ inputRange: [0, SCREEN_WIDTH/4], outputRange: [0, 1] }) }]}>
                         <Ionicons name="checkmark-circle" size={28} color="#10B981" />
-                        <Text style={styles.indicatorText}>INTERESTED</Text>
                     </Animated.View>
-                    
-                    <Animated.View style={[styles.indicator, styles.notInterestedIndicator, { opacity: notInterestedOpacity }]}>
+                    <Animated.View style={[styles.indicator, styles.notInterestedIndicator, { opacity: position.x.interpolate({ inputRange: [-SCREEN_WIDTH/4, 0], outputRange: [1, 0] }) }]}>
                         <Ionicons name="close-circle" size={28} color="#EF4444" />
-                        <Text style={[styles.indicatorText, styles.notInterestedText]}>PASS</Text>
                     </Animated.View>
-                    
-                    {/* Property Info */}
-                    <View style={styles.cardContent}>
-                        <Text style={styles.title} numberOfLines={1}>{currentProperty.title}</Text>
-                        
-                        <View style={styles.locationRow}>
-                            <Ionicons name="location" size={14} color={Blue[500]} />
-                            <Text style={styles.location} numberOfLines={1}>{currentProperty.location}</Text>
-                        </View>
-                        
-                        {/* Features Row */}
-                        <View style={styles.features}>
-                            <View style={styles.feature}>
-                                <Ionicons name="bed-outline" size={16} color={Blue[600]} />
-                                <Text style={styles.featureText}>{currentProperty.bedrooms || 2}</Text>
-                            </View>
-                            <View style={styles.featureDivider} />
-                            <View style={styles.feature}>
-                                <Ionicons name="water-outline" size={16} color={Blue[600]} />
-                                <Text style={styles.featureText}>{currentProperty.bathrooms || 1}</Text>
-                            </View>
-                            <View style={styles.featureDivider} />
-                            <View style={styles.feature}>
-                                <Ionicons name="resize-outline" size={16} color={Blue[600]} />
-                                <Text style={styles.featureText}>{currentProperty.area || 800} ft²</Text>
-                            </View>
-                        </View>
-                        
-                        {/* Amenities */}
-                        {renderAmenities()}
-                        
-                        {/* Landlord Info */}
-                        {currentProperty.landlord && (
-                            <View style={styles.landlordRow}>
-                                <Image 
-                                    source={{ uri: currentProperty.landlord.avatar || 'https://randomuser.me/api/portraits/lego/1.jpg' }}
-                                    style={styles.landlordAvatar}
-                                />
-                                <View style={styles.landlordInfo}>
-                                    <Text style={styles.landlordName}>{currentProperty.landlord.name}</Text>
-                                    <View style={styles.ratingRow}>
-                                        <Ionicons name="star" size={12} color="#F59E0B" />
-                                        <Text style={styles.ratingText}>{currentProperty.landlord.rating || 4.5}</Text>
-                                    </View>
-                                </View>
-                            </View>
-                        )}
-                    </View>
                 </Animated.View>
+
             </View>
-            
-            {/* Swipe Buttons */}
-            <SwipeButtons 
-                onInterested={handleInterested}
-                onNotInterested={handleNotInterested}
-            />
-            
-            {/* Card Counter */}
-            <View style={styles.cardCounter}>
-                <Text style={styles.cardCounterText}>
-                    {currentIndex + 1} of {properties.length}
-                </Text>
-            </View>
-            
-            {/* Image Gallery Modal */}
+            <SwipeButtons onInterested={handleInterested} onNotInterested={handleNotInterested} />
+
             {currentProperty && (
-                <ImageGalleryModal
-                    images={currentProperty.images || []}
-                    visible={isGalleryVisible}
-                    initialIndex={0}
-                    onClose={() => setIsGalleryVisible(false)}
-                />
+                <>
+                    <ImageGalleryModal images={currentProperty.images} visible={isGalleryVisible} onClose={() => setIsGalleryVisible(false)} />
+                    <PropertyMapModal visible={isMapVisible} onClose={() => setIsMapVisible(false)} latitude={currentProperty.latitude} longitude={currentProperty.longitude} address={currentProperty.location} />
+                </>
             )}
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: Neutral[50],
-    },
+    container: { flex: 1, backgroundColor: Neutral[50] },
+    centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     cardContainer: {
         flex: 1,
         alignItems: 'center',
         justifyContent: 'center',
-        paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.xs,
+        position: 'relative',
     },
     card: {
         width: CARD_WIDTH,
         height: CARD_HEIGHT,
-        backgroundColor: '#FFFFFF',
         borderRadius: BorderRadius['2xl'],
-        overflow: 'hidden',
         ...Shadows.xl,
-    },
-    nextCard: {
         position: 'absolute',
-        zIndex: -1,
     },
-    imageContainer: {
-        height: '52%',
-        position: 'relative',
-    },
-    cardImage: {
-        width: '100%',
-        height: '100%',
-    },
-    imageGradient: {
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        bottom: 0,
-        height: '100%',
-    },
-    imageCountBadge: {
-        position: 'absolute',
-        top: 12,
-        right: 12,
-        backgroundColor: 'rgba(0, 0, 0, 0.6)',
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 16,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-    },
-    imageCountText: {
-        color: '#FFFFFF',
-        fontSize: 12,
-        fontWeight: '600',
-    },
-    priceBadge: {
-        position: 'absolute',
-        bottom: 12,
-        left: 12,
-        backgroundColor: Blue[600],
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: BorderRadius.lg,
-        flexDirection: 'row',
-        alignItems: 'baseline',
-    },
-    priceBadgeText: {
-        fontSize: Typography.size.xl,
-        fontWeight: Typography.weight.bold,
-        color: '#FFFFFF',
-    },
-    priceBadgeUnit: {
-        fontSize: Typography.size.sm,
-        color: 'rgba(255,255,255,0.8)',
-        marginLeft: 2,
-    },
-    indicator: {
-        position: 'absolute',
-        top: 60,
-        paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.sm,
-        borderRadius: BorderRadius.lg,
-        borderWidth: 3,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        backgroundColor: 'rgba(255,255,255,0.95)',
-    },
-    interestedIndicator: {
-        right: 16,
-        borderColor: '#10B981',
-        transform: [{ rotate: '12deg' }],
-    },
-    notInterestedIndicator: {
-        left: 16,
-        borderColor: '#EF4444',
-        transform: [{ rotate: '-12deg' }],
-    },
-    indicatorText: {
-        fontSize: Typography.size.lg,
-        fontWeight: Typography.weight.bold,
-        color: '#10B981',
-    },
-    notInterestedText: {
-        color: '#EF4444',
-    },
-    cardContent: {
-        flex: 1,
-        padding: Spacing.sm,
-        paddingTop: Spacing.xs,
-        justifyContent: 'space-between',
-    },
-    title: {
-        fontSize: Typography.size.base,
-        fontWeight: Typography.weight.bold,
-        color: Neutral[900],
-        letterSpacing: -0.3,
-    },
-    locationRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: 4,
-    },
-    location: {
-        fontSize: Typography.size.sm,
-        color: Neutral[500],
-        marginLeft: 4,
-        flex: 1,
-    },
-    features: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: Spacing.xs,
-        paddingVertical: 6,
-        backgroundColor: Blue[50],
-        borderRadius: BorderRadius.md,
-        paddingHorizontal: Spacing.sm,
-    },
-    feature: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        flex: 1,
-        justifyContent: 'center',
-    },
-    featureDivider: {
-        width: 1,
-        height: 20,
-        backgroundColor: Blue[200],
-    },
-    featureText: {
-        fontSize: Typography.size.sm,
-        color: Blue[700],
-        fontWeight: Typography.weight.semibold,
-    },
-    amenitiesContainer: {
-        marginTop: Spacing.xs,
-        height: 28,
-    },
-    amenitiesContent: {
-        paddingRight: Spacing.sm,
-    },
-    amenityTag: {
-        backgroundColor: Neutral[100],
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 12,
-        marginRight: 6,
-        height: 24,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    amenityText: {
-        fontSize: Typography.size.xs,
-        color: Neutral[600],
-        fontWeight: Typography.weight.medium,
-    },
-    landlordRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: Spacing.xs,
-        paddingTop: Spacing.xs,
-        borderTopWidth: 1,
-        borderTopColor: Neutral[100],
-    },
-    landlordAvatar: {
-        width: 28,
-        height: 28,
-        borderRadius: 14,
-        backgroundColor: Neutral[200],
-    },
-    landlordInfo: {
-        marginLeft: Spacing.sm,
-    },
-    landlordName: {
-        fontSize: Typography.size.sm,
-        fontWeight: Typography.weight.medium,
-        color: Neutral[800],
-    },
-    ratingRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 2,
-        marginTop: 2,
-    },
-    ratingText: {
-        fontSize: Typography.size.xs,
-        color: Neutral[600],
-    },
-    cardCounter: {
-        position: 'absolute',
-        bottom: Platform.OS === 'ios' ? 100 : 90,
-        alignSelf: 'center',
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        paddingHorizontal: Spacing.sm,
-        paddingVertical: 4,
-        borderRadius: BorderRadius.full,
-    },
-    cardCounterText: {
-        fontSize: Typography.size.xs,
-        color: '#FFFFFF',
-        fontWeight: Typography.weight.medium,
-    },
-    centered: {
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    loadingContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    loadingText: {
-        marginTop: Spacing.md,
-        fontSize: Typography.size.base,
-        color: Neutral[500],
-    },
+    nextCard: { zIndex: 0 },
+    cardInner: { flex: 1, backgroundColor: '#FFFFFF', borderRadius: BorderRadius['2xl'], overflow: 'hidden' },
+    imageContainer: { height: '40%', position: 'relative' },
+    cardImage: { width: '100%', height: '100%' },
+    imageGradient: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '100%' },
+    priceBadge: { position: 'absolute', bottom: 12, left: 12, backgroundColor: Blue[600], paddingHorizontal: 12, paddingVertical: 6, borderRadius: BorderRadius.lg, flexDirection: 'row', alignItems: 'baseline' },
+    priceBadgeText: { fontSize: Typography.size.xl, fontWeight: 'bold', color: '#FFFFFF' },
+    priceBadgeUnit: { fontSize: Typography.size.xs, color: 'rgba(255,255,255,0.9)', marginLeft: 2 },
+    contentWrapper: { flex: 1 },
+    scrollContent: { padding: Spacing.md },
+    headerSection: { marginBottom: Spacing.sm },
+    title: { fontSize: Typography.size.lg, fontWeight: 'bold', color: Neutral[900], marginBottom: 4 },
+    addressRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+    location: { fontSize: Typography.size.sm, color: Neutral[500], marginLeft: 4, flex: 1 },
+    mapPill: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', backgroundColor: Blue[50], paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, gap: 6 },
+    mapPillText: { fontSize: Typography.size.xs, fontWeight: '600', color: Blue[600] },
+    specsGrid: { flexDirection: 'row', alignItems: 'center', backgroundColor: Neutral[50], borderRadius: BorderRadius.md, padding: Spacing.sm, marginBottom: Spacing.md, justifyContent: 'space-between' },
+    specItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    specText: { fontSize: Typography.size.xs, fontWeight: '600', color: Neutral[800] },
+    verticalDivider: { width: 1, height: 16, backgroundColor: Neutral[200] },
+    descriptionContainer: { marginBottom: Spacing.md },
+    sectionTitle: { fontSize: Typography.size.xs, fontWeight: 'bold', color: Neutral[400], textTransform: 'uppercase', marginBottom: 4, letterSpacing: 0.5 },
+    description: { fontSize: Typography.size.sm, color: Neutral[800], lineHeight: 22 },
+    sectionRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
+    sectionIcon: { width: 24, marginTop: 8 },
+    inlineTagsContainer: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
+    sectionLabelInline: { fontSize: Typography.size.xs, color: Neutral[500], marginRight: 4 },
+    tenantTag: { backgroundColor: Blue[50], paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: Blue[100] },
+    tenantTagText: { fontSize: Typography.size.xs, color: Blue[700], fontWeight: '600' },
+    amenityTag: { backgroundColor: Neutral[100], paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+    amenityText: { fontSize: Typography.size.xs, color: Neutral[600] },
+    indicator: { position: 'absolute', top: 50, padding: 10, borderRadius: 100, backgroundColor: 'white', shadowColor: "#000", shadowOpacity: 0.1, elevation: 4 },
+    interestedIndicator: { right: 20 },
+    notInterestedIndicator: { left: 20 },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: Spacing.md, borderBottomWidth: 1, borderBottomColor: Neutral[200] },
+    modalTitle: { fontSize: Typography.size.lg, fontWeight: 'bold' },
+    closeButton: { padding: 4 },
+    modalFooter: { flexDirection: 'row', alignItems: 'center', padding: Spacing.md, backgroundColor: '#fff', gap: 8 },
+    modalAddress: { fontSize: Typography.size.base, color: Neutral[800], flex: 1 },
 });

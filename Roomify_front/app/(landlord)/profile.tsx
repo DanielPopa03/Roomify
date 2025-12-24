@@ -33,23 +33,10 @@ export default function LandlordProfileScreen() {
     };
     
     const handleLogout = () => {
-        Alert.alert(
-            'Logout',
-            'Are you sure you want to logout?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                { 
-                    text: 'Logout', 
-                    style: 'destructive',
-                    onPress: () => {
-                        logout();
-                        router.replace('/login');
-                    }
-                }
-            ]
-        );
+        logout();
+        router.replace('/login');
     };
-    
+
     const handleSwitchRole = () => {
         Alert.alert(
             'Switch Role',
