@@ -208,12 +208,14 @@ public class PropertyService {
                 String filename = UUID.randomUUID().toString() + "_" + originalName;
                 Files.copy(file.getInputStream(), this.rootLocation.resolve(filename));
 
-                String url = ServletUriComponentsBuilder.fromCurrentContextPath()
-                        .path("/api/properties/images/")
-                        .path(filename)
-                        .toUriString();
+                // FIX: Save ONLY the relative path starting with /api
+                // This ensures the database stays clean regardless of your local IP
+                String url = "/api/properties/images/" + filename;
 
-                imageEntities.add(PropertyImage.builder().url(url).property(property).build());
+                imageEntities.add(PropertyImage.builder()
+                        .url(url)
+                        .property(property)
+                        .build());
             } catch (IOException e) {
                 throw new RuntimeException("Failed to store file", e);
             }

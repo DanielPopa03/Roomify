@@ -21,14 +21,25 @@ const getApiUrl = () => {
 const API_URL = getApiUrl();
 
 // Helper to get full image URL
-export const getImageUrl = (filename: string | undefined | null): string => {
-  if (!filename) return '';
-  // If it's already a full URL, return as is
-  if (filename.startsWith('http://') || filename.startsWith('https://')) {
-    return filename;
+export const getImageUrl = (pathFromDb: string | undefined | null): string => {
+  if (!pathFromDb) return '';
+
+  // 1. Handle local picker URIs
+  if (pathFromDb.startsWith('file://') || pathFromDb.startsWith('content://')) {
+    return pathFromDb;
   }
-  // Otherwise, construct the full URL
-  return `${API_URL}/api/properties/images/${filename}`;
+
+  // 2. Normalize Base URL (no trailing slash)
+  const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
+
+  // 3. Prevent Double Pathing
+  // If DB says "/api/properties/images/img.jpg", just join it to baseUrl
+  if (pathFromDb.startsWith('/api')) {
+    return `${baseUrl}${pathFromDb}`;
+  }
+
+  // 4. Fallback for raw filenames
+  return `${baseUrl}/api/properties/images/${pathFromDb}`;
 };
 
 // ============================================

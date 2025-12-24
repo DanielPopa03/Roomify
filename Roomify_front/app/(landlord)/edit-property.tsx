@@ -127,15 +127,11 @@ export default function EditPropertyScreen() {
         }));
     };
 
-    // --- HELPER: Haversine Distance Calculation (km) ---
     const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-        const R = 6371; // Radius of the earth in km
+        const R = 6371;
         const dLat = (lat2 - lat1) * (Math.PI / 180);
         const dLon = (lon2 - lon1) * (Math.PI / 180);
-        const a =
-            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
-            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         return R * c;
     };
@@ -143,18 +139,13 @@ export default function EditPropertyScreen() {
     const validateForm = () => {
         const newErrors: Record<string, string> = {};
         let isValid = true;
-
         if (!formData.title.trim()) { newErrors.title = 'Property title is required'; isValid = false; }
         if (!formData.price || parseFloat(formData.price) <= 0) { newErrors.price = 'Valid price is required'; isValid = false; }
         if (!formData.surface || parseFloat(formData.surface) <= 0) { newErrors.surface = 'Valid surface area is required'; isValid = false; }
-
-        // Basic Check: Coordinates & Text must exist
         if (!formData.address.trim()) { newErrors.address = 'Please search or pin a location on the map'; isValid = false; }
         else if (!formData.latitude || !formData.longitude) { newErrors.address = 'Location coordinates missing. Tap search or the map.'; isValid = false; }
-
         if (!formData.numberOfRooms || parseInt(formData.numberOfRooms) <= 0) { newErrors.numberOfRooms = 'Number of rooms is required'; isValid = false; }
         if (images.length === 0) { newErrors.images = 'At least one image is required'; isValid = false; }
-
         setErrors(newErrors);
         return isValid;
     };
@@ -165,8 +156,6 @@ export default function EditPropertyScreen() {
             return;
         }
 
-        // --- VALIDATION: Check Proximity (2km) ---
-        // We geocode the text one last time to see if it matches the pin
         try {
             const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(formData.address)}&format=json&limit=1`;
             const response = await fetch(url, { headers: { 'User-Agent': 'RoomifyApp/1.0' } });
@@ -175,22 +164,17 @@ export default function EditPropertyScreen() {
             if (data && data.length > 0 && formData.latitude && formData.longitude) {
                 const textLat = parseFloat(data[0].lat);
                 const textLng = parseFloat(data[0].lon);
-
                 const distKm = calculateDistance(textLat, textLng, formData.latitude, formData.longitude);
 
                 if (distKm > 2.0) {
-                    Alert.alert(
-                        "Location Mismatch",
-                        `The address text and the map pin are too far apart (~${distKm.toFixed(1)}km).\n\nPlease either search for the location again or move the map pin closer to the address.`
-                    );
-                    return; // STOP SUBMISSION
+                    Alert.alert("Location Mismatch", `The address text and the map pin are too far apart (~${distKm.toFixed(1)}km).\n\nPlease either search for the location again or move the map pin closer to the address.`);
+                    return;
                 }
             }
         } catch (e) {
             console.warn("Validation skipped due to network error", e);
         }
 
-        // --- SUBMIT ---
         try {
             let newImageCounter = 0;
             const orderedIdentifiers = images.map((img) => {
@@ -228,17 +212,11 @@ export default function EditPropertyScreen() {
                 orderedIdentifiers,
             };
 
-            const result = await updateProperty(
-                parseInt(propertyId),
-                propertyData,
-                newImageFiles.length > 0 ? newImageFiles : undefined
-            );
+            const result = await updateProperty(parseInt(propertyId), propertyData, newImageFiles.length > 0 ? newImageFiles : undefined);
 
             if (result) {
                 setSnackbar({ visible: true, message: 'Property updated successfully!', type: 'success' });
-                setTimeout(() => {
-                    router.canGoBack() ? router.back() : router.replace('/(landlord)');
-                }, 1500);
+                setTimeout(() => { router.canGoBack() ? router.back() : router.replace('/(landlord)'); }, 1500);
             } else if (error) {
                 setSnackbar({ visible: true, message: error, type: 'error' });
             }
@@ -248,18 +226,6 @@ export default function EditPropertyScreen() {
         }
     };
 
-    if (loadingProperty) {
-        return (
-            <View style={[styles.container, { paddingTop: insets.top }]}>
-                <Header title="Edit Property" user={user} showBackButton onBackPress={() => router.back()} />
-                <View style={styles.loadingContainer}>
-                    <Text style={styles.loadingText}>Loading property...</Text>
-                </View>
-            </View>
-        );
-    }
-
-    // Helper functions for UI
     const handleIntegerChange = (f:string, v:string) => updateField(f, v.replace(/[^0-9]/g, ''));
     const handleDecimalChange = (f:string, v:string) => updateField(f, v.replace(/[^0-9.]/g, ''));
     const pickImages = async () => {
@@ -267,7 +233,7 @@ export default function EditPropertyScreen() {
         if (status !== 'granted') return Alert.alert('Permission Required', 'Access needed.');
         const currentImageCount = images.length;
         if (currentImageCount >= 7) return Alert.alert('Limit Reached', 'Max 7 images.');
-        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: 'images', allowsMultipleSelection: true, quality: 0.8, selectionLimit: 7 - currentImageCount });
+        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: true, quality: 0.8, selectionLimit: 7 - currentImageCount });
         if (!result.canceled) {
             const newImages: NewImage[] = result.assets.map(asset => ({ uri: asset.uri, isNew: true }));
             setImages(prev => [...prev, ...newImages]);
@@ -307,17 +273,12 @@ export default function EditPropertyScreen() {
                     />
                     {errors.title && <Text style={styles.errorText}>{errors.title}</Text>}
 
-                    {/* --- LOCATION PICKER (Replaces Manual Input) --- */}
                     <Text style={styles.label}>Location (Search or Pin) *</Text>
                     <LocationPicker
                         addressValue={formData.address}
                         onAddressChange={(text) => updateField('address', text)}
                         onLocationPicked={handleLocationPicked}
-                        initialLocation={
-                            formData.latitude && formData.longitude
-                                ? { lat: formData.latitude, lng: formData.longitude }
-                                : undefined
-                        }
+                        initialLocation={formData.latitude && formData.longitude ? { lat: formData.latitude, lng: formData.longitude } : undefined}
                     />
                     {errors.address && <Text style={styles.errorText}>{errors.address}</Text>}
 
@@ -355,7 +316,6 @@ export default function EditPropertyScreen() {
                     />
                 </Card>
 
-                {/* Property Details Section */}
                 <Card style={styles.section}>
                     <Text style={styles.sectionTitle}>Property Details</Text>
                     <Text style={styles.label}>Number of Rooms *</Text>
@@ -415,7 +375,6 @@ export default function EditPropertyScreen() {
                     </View>
                 </Card>
 
-                {/* Images Section */}
                 <Card style={[styles.section, errors.images && styles.sectionError]}>
                     <Text style={styles.sectionTitle}>Images * (1-7 photos)</Text>
                     {images.length > 0 && (
@@ -431,29 +390,38 @@ export default function EditPropertyScreen() {
                     )}
                     <Text style={styles.editLabel}>Edit Images (drag to reorder):</Text>
                     <View style={styles.imagesGrid}>
-                        {images.map((img, index) => (
-                            <View key={index} style={styles.imageContainer}>
-                                <Image source={{ uri: 'id' in img ? img.url : img.uri }} style={styles.image} />
-                                <TouchableOpacity style={styles.removeImageButton} onPress={() => removeImage(index)}>
-                                    <Ionicons name="close-circle" size={24} color={Neutral[700]} />
-                                </TouchableOpacity>
-                                <View style={styles.reorderButtons}>
-                                    {index > 0 && (
-                                        <TouchableOpacity style={styles.reorderButton} onPress={() => moveImage(index, index - 1)}>
-                                            <Ionicons name="chevron-back" size={16} color="#FFF" />
-                                        </TouchableOpacity>
-                                    )}
-                                    {index < images.length - 1 && (
-                                        <TouchableOpacity style={styles.reorderButton} onPress={() => moveImage(index, index + 1)}>
-                                            <Ionicons name="chevron-forward" size={16} color="#FFF" />
-                                        </TouchableOpacity>
-                                    )}
+                        {images.map((img, index) => {
+                            // FIX: Resolve the full URI using the helper for the grid as well
+                            const resolvedUri = 'id' in img ? getImageUrl(img.url) : img.uri;
+
+                            return (
+                                <View key={index} style={styles.imageContainer}>
+                                    <Image
+                                        source={{ uri: resolvedUri }}
+                                        style={styles.image}
+                                        resizeMode="cover"
+                                    />
+                                    <TouchableOpacity style={styles.removeImageButton} onPress={() => removeImage(index)}>
+                                        <Ionicons name="close-circle" size={24} color={Neutral[700]} />
+                                    </TouchableOpacity>
+                                    <View style={styles.reorderButtons}>
+                                        {index > 0 && (
+                                            <TouchableOpacity style={styles.reorderButton} onPress={() => moveImage(index, index - 1)}>
+                                                <Ionicons name="chevron-back" size={16} color="#FFF" />
+                                            </TouchableOpacity>
+                                        )}
+                                        {index < images.length - 1 && (
+                                            <TouchableOpacity style={styles.reorderButton} onPress={() => moveImage(index, index + 1)}>
+                                                <Ionicons name="chevron-forward" size={16} color="#FFF" />
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
+                                    <View style={styles.orderBadge}>
+                                        <Text style={styles.orderText}>{index + 1}</Text>
+                                    </View>
                                 </View>
-                                <View style={styles.orderBadge}>
-                                    <Text style={styles.orderText}>{index + 1}</Text>
-                                </View>
-                            </View>
-                        ))}
+                            );
+                        })}
                         {images.length < 7 && (
                             <TouchableOpacity style={[styles.addImageButton, errors.images && styles.addImageButtonError]} onPress={pickImages}>
                                 <Ionicons name="add" size={32} color={errors.images ? ErrorColor : Blue[600]} />

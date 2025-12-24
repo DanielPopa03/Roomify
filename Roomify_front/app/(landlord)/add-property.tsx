@@ -14,11 +14,11 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 
-import { Header, Button, Card, Snackbar } from '@/components/ui';
+import { Header, Button, Card, ImageCarousel, Snackbar } from '@/components/ui';
+import { LocationPicker } from '@/components/location-picker';
 import { Blue, Neutral, Typography, Spacing, BorderRadius } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { usePropertyMutations } from '@/hooks/useApi';
-import { LocationPicker } from '@/components/location-picker';
 
 const ErrorColor = '#DC2626';
 
@@ -35,7 +35,7 @@ export default function AddPropertyScreen() {
         title: '',
         price: '',
         surface: '',
-        address: '', // Controlled by LocationPicker
+        address: '',
         description: '',
         numberOfRooms: '',
         hasExtraBathroom: false,
@@ -54,9 +54,7 @@ export default function AddPropertyScreen() {
 
     const updateField = (field: string, value: any) => {
         setFormData(prev => ({ ...prev, [field]: value }));
-        if (errors[field]) {
-            setErrors(prev => ({ ...prev, [field]: '' }));
-        }
+        if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
     };
 
     const handleLocationPicked = (location: { lat: number; lng: number; address?: string }) => {
@@ -77,32 +75,24 @@ export default function AddPropertyScreen() {
         }));
     };
 
-    // --- HELPER: Haversine Distance Calculation (km) ---
-    const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-        const R = 6371;
-        const dLat = (lat2 - lat1) * (Math.PI / 180);
-        const dLon = (lon2 - lon1) * (Math.PI / 180);
-        const a =
-            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
-            Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c;
+    const moveImage = (fromIndex: number, toIndex: number) => {
+        if (toIndex < 0 || toIndex >= images.length) return;
+        const newImages = [...images];
+        const [movedItem] = newImages.splice(fromIndex, 1);
+        newImages.splice(toIndex, 0, movedItem);
+        setImages(newImages);
     };
 
     const validateForm = () => {
         const newErrors: Record<string, string> = {};
         let isValid = true;
 
-        if (!formData.title.trim()) { newErrors.title = 'Property title is required'; isValid = false; }
-        if (!formData.price || parseFloat(formData.price) <= 0) { newErrors.price = 'Valid price is required'; isValid = false; }
-        if (!formData.surface || parseFloat(formData.surface) <= 0) { newErrors.surface = 'Valid surface area is required'; isValid = false; }
-
-        if (!formData.address.trim()) { newErrors.address = 'Please search or pin a location on the map'; isValid = false; }
-        else if (!formData.latitude || !formData.longitude) { newErrors.address = 'Location coordinates missing. Tap search or the map.'; isValid = false; }
-
-        if (!formData.numberOfRooms || parseInt(formData.numberOfRooms) <= 0) { newErrors.numberOfRooms = 'Number of rooms is required'; isValid = false; }
-        if (images.length === 0) { newErrors.images = 'At least one image is required'; isValid = false; }
+        if (!formData.title.trim()) { newErrors.title = 'Title is required'; isValid = false; }
+        if (!formData.price || parseFloat(formData.price) <= 0) { newErrors.price = 'Valid price required'; isValid = false; }
+        if (!formData.surface || parseFloat(formData.surface) <= 0) { newErrors.surface = 'Valid surface required'; isValid = false; }
+        if (!formData.address.trim()) { newErrors.address = 'Location required'; isValid = false; }
+        if (!formData.numberOfRooms || parseInt(formData.numberOfRooms) <= 0) { newErrors.numberOfRooms = 'Rooms required'; isValid = false; }
+        if (images.length === 0) { newErrors.images = 'At least one photo required'; isValid = false; }
 
         setErrors(newErrors);
         return isValid;
@@ -114,42 +104,8 @@ export default function AddPropertyScreen() {
             return;
         }
 
-        // --- VALIDATION: Check Proximity (2km) ---
         try {
-            const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(formData.address)}&format=json&limit=1`;
-            const response = await fetch(url, { headers: { 'User-Agent': 'RoomifyApp/1.0' } });
-            const data = await response.json();
-
-            if (data && data.length > 0 && formData.latitude && formData.longitude) {
-                const textLat = parseFloat(data[0].lat);
-                const textLng = parseFloat(data[0].lon);
-
-                const distKm = calculateDistance(textLat, textLng, formData.latitude, formData.longitude);
-
-                if (distKm > 2.0) {
-                    Alert.alert(
-                        "Location Mismatch",
-                        `The address text and the map pin are too far apart (~${distKm.toFixed(1)}km).\n\nPlease either search for the location again or move the map pin closer to the address.`
-                    );
-                    return;
-                }
-            }
-        } catch (e) {
-            console.warn("Validation skipped due to network error", e);
-        }
-
-        // --- SUBMIT ---
-        try {
-            const imageFiles = await Promise.all(images.map(async (img, index) => {
-                if (img.uri.startsWith('blob:')) {
-                    const response = await fetch(img.uri);
-                    const blob = await response.blob();
-                    return new File([blob], `image_${index}.jpg`, { type: blob.type || 'image/jpeg' });
-                } else {
-                    return { uri: img.uri, type: 'image/jpeg', name: `image_${index}.jpg` } as any;
-                }
-            }));
-
+            // 1. Define the data object FIRST
             const propertyData = {
                 title: formData.title,
                 price: parseFloat(formData.price),
@@ -166,6 +122,25 @@ export default function AddPropertyScreen() {
                 longitude: formData.longitude
             };
 
+            // 2. Process the images
+            const imageFiles = await Promise.all(images.map(async (img, index) => {
+                // Check if we are on Web (blob URIs)
+                if (img.uri.startsWith('blob:') || img.uri.startsWith('http')) {
+                    const response = await fetch(img.uri);
+                    const blob = await response.blob();
+                    // Create a real File object that Spring Boot understands
+                    return new File([blob], `image_${index}.jpg`, { type: 'image/jpeg' });
+                }
+
+                // Standard Mobile (Android/iOS) handling
+                return {
+                    uri: img.uri,
+                    type: 'image/jpeg',
+                    name: `image_${index}.jpg`,
+                } as any;
+            }));
+
+            // 3. Now propertyData is defined, so this call will work
             const result = await createProperty(propertyData, imageFiles);
 
             if (result) {
@@ -175,34 +150,34 @@ export default function AddPropertyScreen() {
                 setTimeout(() => {
                     router.canGoBack() ? router.back() : router.replace('/(landlord)');
                 }, 1500);
-            } else {
-                setSnackbar({ visible: true, message: error || 'Failed to create property', type: 'error' });
             }
         } catch (err) {
+            console.error("Upload error:", err);
             setSnackbar({ visible: true, message: 'Failed to create property.', type: 'error' });
         }
     };
 
-    const handleIntegerChange = (f: string, v: string) => updateField(f, v.replace(/[^0-9]/g, ''));
-    const handleDecimalChange = (f: string, v: string) => updateField(f, v.replace(/[^0-9.]/g, ''));
-
     const pickImages = async () => {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') return Alert.alert('Permission Required', 'Access needed.');
-        const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: 'images', allowsMultipleSelection: true, quality: 0.8, selectionLimit: 7 - images.length });
+        const r = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsMultipleSelection: true,
+            quality: 0.8,
+            selectionLimit: 7 - images.length
+        });
         if (!r.canceled) {
             setImages(p => [...p, ...r.assets]);
             if (errors.images) setErrors(p => ({...p, images: ''}));
         }
     };
 
-    const removeImage = (i: number) => setImages(p => p.filter((_, idx) => idx !== i));
-
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
             <Header title="Add Property" user={user} showBackButton onBackPress={() => router.back()} />
 
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+                {/* --- BASIC INFORMATION --- */}
                 <Card style={styles.section}>
                     <Text style={styles.sectionTitle}>Basic Information</Text>
 
@@ -210,42 +185,35 @@ export default function AddPropertyScreen() {
                     <TextInput
                         style={[styles.input, errors.title && styles.inputError]}
                         value={formData.title}
-                        onChangeText={(text) => updateField('title', text)}
+                        onChangeText={(t) => updateField('title', t)}
                         placeholder="e.g., Modern Downtown Apartment"
                         placeholderTextColor={Neutral[400]}
                     />
-                    {errors.title && <Text style={styles.errorText}>{errors.title}</Text>}
 
-                    <Text style={styles.label}>Location (Search or Pin on Map) *</Text>
+                    <Text style={styles.label}>Location (Search or Pin) *</Text>
                     <LocationPicker
                         addressValue={formData.address}
-                        onAddressChange={(text) => updateField('address', text)}
+                        onAddressChange={(t) => updateField('address', t)}
                         onLocationPicked={handleLocationPicked}
-                        initialLocation={
-                            formData.latitude && formData.longitude
-                                ? { lat: formData.latitude, lng: formData.longitude }
-                                : undefined
-                        }
                     />
-                    {errors.address && <Text style={styles.errorText}>{errors.address}</Text>}
 
                     <Text style={styles.label}>Price (€/month) *</Text>
                     <TextInput
-                        style={[styles.input, errors.price && styles.inputError]}
+                        style={styles.input}
                         value={formData.price}
-                        onChangeText={(text) => handleDecimalChange('price', text)}
-                        placeholder="1200"
+                        onChangeText={(t) => updateField('price', t.replace(/[^0-9.]/g, ''))}
                         keyboardType="decimal-pad"
+                        placeholder="1200"
                         placeholderTextColor={Neutral[400]}
                     />
 
                     <Text style={styles.label}>Surface (m²) *</Text>
                     <TextInput
-                        style={[styles.input, errors.surface && styles.inputError]}
+                        style={styles.input}
                         value={formData.surface}
-                        onChangeText={(text) => handleDecimalChange('surface', text)}
-                        placeholder="85"
+                        onChangeText={(t) => updateField('surface', t.replace(/[^0-9.]/g, ''))}
                         keyboardType="decimal-pad"
+                        placeholder="85"
                         placeholderTextColor={Neutral[400]}
                     />
 
@@ -253,7 +221,7 @@ export default function AddPropertyScreen() {
                     <TextInput
                         style={[styles.input, styles.textArea]}
                         value={formData.description}
-                        onChangeText={(text) => updateField('description', text)}
+                        onChangeText={(t) => updateField('description', t)}
                         placeholder="Describe your property..."
                         placeholderTextColor={Neutral[400]}
                         multiline
@@ -261,16 +229,17 @@ export default function AddPropertyScreen() {
                     />
                 </Card>
 
+                {/* --- PROPERTY DETAILS --- */}
                 <Card style={styles.section}>
                     <Text style={styles.sectionTitle}>Property Details</Text>
 
                     <Text style={styles.label}>Number of Rooms *</Text>
                     <TextInput
-                        style={[styles.input, errors.numberOfRooms && styles.inputError]}
+                        style={styles.input}
                         value={formData.numberOfRooms}
-                        onChangeText={(text) => handleIntegerChange('numberOfRooms', text)}
-                        placeholder="2"
+                        onChangeText={(t) => updateField('numberOfRooms', t.replace(/[^0-9]/g, ''))}
                         keyboardType="number-pad"
+                        placeholder="2"
                         placeholderTextColor={Neutral[400]}
                     />
 
@@ -281,7 +250,6 @@ export default function AddPropertyScreen() {
                         </TouchableOpacity>
                     </View>
 
-                    {/* RESTORED FIELDS START HERE */}
                     <Text style={styles.label}>Layout Type</Text>
                     <View style={styles.optionsRow}>
                         {LAYOUT_TYPES.map(type => (
@@ -319,18 +287,43 @@ export default function AddPropertyScreen() {
                             </TouchableOpacity>
                         ))}
                     </View>
-                    {/* RESTORED FIELDS END HERE */}
                 </Card>
 
+                {/* --- IMAGES SECTION --- */}
                 <Card style={[styles.section, errors.images && styles.sectionError]}>
                     <Text style={styles.sectionTitle}>Images * (1-7 photos)</Text>
+
+                    {images.length > 0 && (
+                        <View style={styles.previewSection}>
+                            <Text style={styles.previewLabel}>Preview:</Text>
+                            <ImageCarousel images={images.map(img => img.uri)} height={250} showPageIndicator enableZoom />
+                        </View>
+                    )}
+
+                    <Text style={styles.editLabel}>Edit Images (use arrows to reorder):</Text>
                     <View style={styles.imagesGrid}>
                         {images.map((img, index) => (
                             <View key={index} style={styles.imageContainer}>
-                                <Image source={{ uri: img.uri }} style={styles.image} />
-                                <TouchableOpacity style={styles.removeImageButton} onPress={() => removeImage(index)}>
+                                <Image source={{ uri: img.uri }} style={styles.image} resizeMode="cover" />
+                                <TouchableOpacity style={styles.removeImageButton} onPress={() => setImages(images.filter((_, i) => i !== index))}>
                                     <Ionicons name="close-circle" size={24} color={Neutral[700]} />
                                 </TouchableOpacity>
+
+                                <View style={styles.reorderButtons}>
+                                    {index > 0 && (
+                                        <TouchableOpacity style={styles.reorderButton} onPress={() => moveImage(index, index - 1)}>
+                                            <Ionicons name="chevron-back" size={16} color="#FFF" />
+                                        </TouchableOpacity>
+                                    )}
+                                    {index < images.length - 1 && (
+                                        <TouchableOpacity style={styles.reorderButton} onPress={() => moveImage(index, index + 1)}>
+                                            <Ionicons name="chevron-forward" size={16} color="#FFF" />
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+                                <View style={styles.orderBadge}>
+                                    <Text style={styles.orderText}>{index + 1}</Text>
+                                </View>
                             </View>
                         ))}
                         {images.length < 7 && (
@@ -340,21 +333,12 @@ export default function AddPropertyScreen() {
                             </TouchableOpacity>
                         )}
                     </View>
-                    {errors.images && <Text style={styles.errorText}>{errors.images}</Text>}
                 </Card>
 
                 <View style={styles.actions}>
-                    <Button
-                        title={isLoading ? 'Creating...' : 'Create Property'}
-                        variant="primary"
-                        onPress={handleSubmit}
-                        disabled={isLoading}
-                        loading={isLoading}
-                        fullWidth
-                    />
+                    <Button title={isLoading ? 'Creating...' : 'Create Property'} variant="primary" onPress={handleSubmit} disabled={isLoading} loading={isLoading} fullWidth />
                 </View>
             </ScrollView>
-
             <Snackbar visible={snackbar.visible} message={snackbar.message} type={snackbar.type} onDismiss={() => setSnackbar(p => ({ ...p, visible: false }))} />
         </View>
     );
@@ -367,7 +351,7 @@ const styles = StyleSheet.create({
     sectionError: { borderColor: ErrorColor, borderWidth: 1 },
     sectionTitle: { fontSize: Typography.size.xl, fontWeight: Typography.weight.semibold, marginBottom: Spacing.md, color: Neutral[900] },
     label: { fontSize: Typography.size.base, fontWeight: Typography.weight.semibold, color: Neutral[700], marginBottom: Spacing.xs, marginTop: Spacing.sm },
-    input: { borderWidth: 1, borderColor: Neutral[300], borderRadius: BorderRadius.md, padding: Spacing.sm, fontSize: 16, color: Neutral[900], backgroundColor: '#FFFFFF' },
+    input: { borderWidth: 1, borderColor: Neutral[300], borderRadius: BorderRadius.md, padding: Spacing.sm, fontSize: 16, color: Neutral[900], backgroundColor: '#FFFFFF', textAlignVertical: 'center' },
     inputError: { borderColor: ErrorColor, backgroundColor: '#FEF2F2' },
     errorText: { color: ErrorColor, fontSize: Typography.size.sm, marginTop: 4, marginLeft: 2 },
     textArea: { height: 100, textAlignVertical: 'top' },
@@ -384,10 +368,17 @@ const styles = StyleSheet.create({
     tenantTypeButtonActive: { backgroundColor: Blue[600], borderColor: Blue[600] },
     tenantTypeText: { fontSize: Typography.size.sm, color: Neutral[700] },
     tenantTypeTextActive: { color: '#FFFFFF' },
+    previewSection: { marginBottom: Spacing.md },
+    previewLabel: { fontSize: Typography.size.sm, fontWeight: Typography.weight.semibold, color: Neutral[700], marginBottom: Spacing.xs },
+    editLabel: { fontSize: Typography.size.sm, fontWeight: Typography.weight.medium, color: Neutral[600], marginBottom: Spacing.xs },
     imagesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginTop: Spacing.sm },
-    imageContainer: { width: 100, height: 100, borderRadius: BorderRadius.md, overflow: 'hidden' },
+    imageContainer: { width: 100, height: 100, borderRadius: BorderRadius.md, overflow: 'hidden', position: 'relative' },
     image: { width: '100%', height: '100%' },
     removeImageButton: { position: 'absolute', top: 4, right: 4, backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: 12 },
+    reorderButtons: { position: 'absolute', bottom: 4, left: 4, flexDirection: 'row', gap: 4 },
+    reorderButton: { backgroundColor: 'rgba(0, 0, 0, 0.7)', borderRadius: 12, width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
+    orderBadge: { position: 'absolute', top: 4, left: 4, backgroundColor: Blue[600], borderRadius: 12, width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
+    orderText: { color: '#FFFFFF', fontSize: 10, fontWeight: 'bold' },
     addImageButton: { width: 100, height: 100, borderWidth: 2, borderColor: Blue[600], borderStyle: 'dashed', borderRadius: BorderRadius.md, alignItems: 'center', justifyContent: 'center' },
     addImageText: { fontSize: Typography.size.sm, color: Blue[600], marginTop: Spacing.xs },
     actions: { padding: Spacing.base, paddingBottom: Spacing.xl },
