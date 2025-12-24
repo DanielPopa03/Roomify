@@ -1,4 +1,51 @@
 package com.roomify.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.roomify.model.enums.MatchStatus;
+import jakarta.persistence.*;
+import lombok.*;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "matches", uniqueConstraints = {
+        @UniqueConstraint(columnNames = {"tenant_id", "property_id"})
+})
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class Match {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "tenant_id", nullable = false)
+    @JsonIgnoreProperties({"matches", "properties", "role", "bio", "phoneNumber"})
+    private User tenant;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "landlord_id", nullable = false)
+    @JsonIgnoreProperties({"matches", "properties", "role", "bio", "phoneNumber"})
+    private User landlord;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "property_id", nullable = false)
+    @JsonIgnoreProperties({"owner", "matches", "images", "description"})
+    private Property property;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private MatchStatus status;
+
+    @CreationTimestamp
+    @Column(updatable = false)
+    private LocalDateTime createdAt;
+
+    @UpdateTimestamp
+    private LocalDateTime updatedAt;
 }

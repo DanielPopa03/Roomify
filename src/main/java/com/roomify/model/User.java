@@ -23,6 +23,8 @@ public class User {
     @Column(unique = true, nullable = false)
     private String email;
 
+    private String phoneNumber;
+
     private String firstName;
 
     @Column(columnDefinition = "TEXT")
@@ -43,4 +45,11 @@ public class User {
 
     @ManyToOne
     private Role role;
+
+    public boolean isProfileComplete() {
+        return firstName != null && !firstName.isBlank() &&
+                !firstName.equals("New User") && // Force them to change the default name
+                phoneNumber != null && !phoneNumber.isBlank() &&
+                email != null && !email.isBlank();
+    }
 }

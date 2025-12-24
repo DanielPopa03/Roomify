@@ -1,4 +1,4 @@
-package com.roomify.model;
+package com.roomify.model.enums;
 
 public enum PreferredTenantType {
     STUDENT("Student"),

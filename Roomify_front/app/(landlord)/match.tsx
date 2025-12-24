@@ -1,164 +1,162 @@
-import React, { useState, useMemo } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import {
+    View,
+    Text,
+    FlatList,
+    StyleSheet,
+    TouchableOpacity,
+    ScrollView,
+    ActivityIndicator,
+    RefreshControl
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-import { Header, UserCard, EmptyState, Button, Card, Avatar } from '@/components/ui';
-import { Blue, Neutral, Typography, Spacing, BorderRadius, Shadows } from '@/constants/theme';
+import { Header, UserCard, EmptyState } from '@/components/ui';
+import { Blue, Neutral, Typography, Spacing, BorderRadius } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
-
-// Mock interested users data
-const MOCK_INTERESTED_USERS = [
-    { 
-        id: '1', 
-        name: 'Sarah Jenkins',
-        avatar: 'https://randomuser.me/api/portraits/women/44.jpg',
-        occupation: 'Graphic Designer',
-        age: 28,
-        bio: 'Looking for a quiet place near the city center. I have a cat named Whiskers.',
-        propertyId: '1',
-        propertyTitle: 'Modern Downtown Apartment',
-        interestedAt: new Date(Date.now() - 1000 * 60 * 60 * 2),
-        status: 'pending', // pending, accepted, declined
-    },
-    { 
-        id: '2', 
-        name: 'Michael Chen',
-        avatar: 'https://randomuser.me/api/portraits/men/32.jpg',
-        occupation: 'Software Engineer',
-        age: 32,
-        bio: 'Remote worker, quiet tenant. Non-smoker with stable income.',
-        propertyId: '1',
-        propertyTitle: 'Modern Downtown Apartment',
-        interestedAt: new Date(Date.now() - 1000 * 60 * 60 * 5),
-        status: 'pending',
-    },
-    { 
-        id: '3', 
-        name: 'Emily Davis',
-        avatar: 'https://randomuser.me/api/portraits/women/68.jpg',
-        occupation: 'Marketing Manager',
-        age: 30,
-        bio: 'Professional looking for a nice apartment. Have excellent references.',
-        propertyId: '2',
-        propertyTitle: 'Cozy Studio Near Park',
-        interestedAt: new Date(Date.now() - 1000 * 60 * 60 * 24),
-        status: 'accepted',
-    },
-    { 
-        id: '4', 
-        name: 'James Wilson',
-        avatar: 'https://randomuser.me/api/portraits/men/45.jpg',
-        occupation: 'Teacher',
-        age: 35,
-        bio: 'Single professional, looking for long-term rental. Very responsible tenant.',
-        propertyId: '3',
-        propertyTitle: 'Spacious Family Home',
-        interestedAt: new Date(Date.now() - 1000 * 60 * 60 * 48),
-        status: 'pending',
-    },
-];
-
-// Mock properties for filter
-const MOCK_PROPERTIES = [
-    { id: 'all', title: 'All Properties' },
-    { id: '1', title: 'Modern Downtown Apartment' },
-    { id: '2', title: 'Cozy Studio Near Park' },
-    { id: '3', title: 'Spacious Family Home' },
-];
 
 export default function LandlordInterestedScreen() {
     const router = useRouter();
     const params = useLocalSearchParams();
     const insets = useSafeAreaInsets();
-    const { user } = useAuth();
-    
+    const { getAccessToken, user } = useAuth();
+
+    // --- STATE ---
     const [selectedProperty, setSelectedProperty] = useState<string>(
         params.propertyId as string || 'all'
     );
-    const [interestedUsers, setInterestedUsers] = useState(MOCK_INTERESTED_USERS);
-    
-    const filteredUsers = useMemo(() => {
-        if (selectedProperty === 'all') {
-            return interestedUsers.filter(u => u.status === 'pending');
+    const [matches, setMatches] = useState<any[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+
+    const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
+
+    // --- API CALLS ---
+    const fetchMatches = useCallback(async () => {
+        try {
+            const token = await getAccessToken();
+            const response = await fetch(`http://${MY_IP}:8080/api/matches/landlord/pending`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                setMatches(data);
+            }
+        } catch (error) {
+            console.error("Network error fetching matches:", error);
+        } finally {
+            setIsLoading(false);
+            setRefreshing(false);
         }
-        return interestedUsers.filter(
-            u => u.propertyId === selectedProperty && u.status === 'pending'
+    }, [getAccessToken, MY_IP]);
+
+    useEffect(() => {
+        fetchMatches();
+    }, [fetchMatches]);
+
+    const onRefresh = () => {
+        setRefreshing(true);
+        fetchMatches();
+    };
+
+    // --- HANDLERS (Alerts Removed) ---
+
+    const handleAccept = async (tenantId: string, propertyId: number) => {
+        // Optimistic UI update: remove from list immediately
+        setMatches(prev => prev.filter(m => m.tenant.id !== tenantId));
+
+        try {
+            const token = await getAccessToken();
+            const response = await fetch(`http://${MY_IP}:8080/api/matches/landlord/swipe`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ tenantId, propertyId })
+            });
+
+            if (!response.ok) {
+                // If failed, refresh to bring the user back
+                fetchMatches();
+                console.error('Failed to accept tenant');
+            }
+        } catch (error) {
+            fetchMatches();
+            console.error('Error accepting tenant:', error);
+        }
+    };
+
+    const handleDecline = async (tenantId: string, propertyId: number) => {
+        // Optimistic UI update: remove from list immediately
+        setMatches(prev => prev.filter(m => m.tenant.id !== tenantId));
+
+        try {
+            const token = await getAccessToken();
+            const response = await fetch(`http://${MY_IP}:8080/api/matches/landlord/decline`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ tenantId, propertyId })
+            });
+
+            if (!response.ok) {
+                fetchMatches();
+                console.error('Failed to decline tenant');
+            }
+        } catch (error) {
+            fetchMatches();
+            console.error('Error declining tenant:', error);
+        }
+    };
+
+    const handleViewProfile = (tenantId: string) => {
+        router.push(`/(landlord)/tenant-profile?id=${tenantId}`);
+    };
+
+    // --- DATA PROCESSING ---
+    const filteredMatches = useMemo(() => {
+        if (selectedProperty === 'all') return matches;
+        return matches.filter(m => m.property.id.toString() === selectedProperty);
+    }, [selectedProperty, matches]);
+
+    const uniqueProperties = useMemo(() => {
+        const props = matches.map(m => ({ id: m.property.id.toString(), title: m.property.title }));
+        const unique = Array.from(new Map(props.map(item => [item.id, item])).values());
+        return [{ id: 'all', title: 'All Properties' }, ...unique];
+    }, [matches]);
+
+    if (isLoading) {
+        return (
+            <View style={[styles.container, styles.centered]}>
+                <ActivityIndicator size="large" color={Blue[600]} />
+            </View>
         );
-    }, [selectedProperty, interestedUsers]);
-    
-    const handleAccept = (userId: string) => {
-        Alert.alert(
-            'Accept Tenant',
-            'Do you want to accept this tenant? They will be notified and can start a conversation with you.',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                { 
-                    text: 'Accept', 
-                    onPress: () => {
-                        setInterestedUsers(prev => 
-                            prev.map(u => u.id === userId ? { ...u, status: 'accepted' } : u)
-                        );
-                        Alert.alert('Success', 'Tenant accepted! They can now message you.');
-                    }
-                }
-            ]
-        );
-    };
-    
-    const handleDecline = (userId: string) => {
-        Alert.alert(
-            'Decline Tenant',
-            'Are you sure you want to decline this tenant?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                { 
-                    text: 'Decline', 
-                    style: 'destructive',
-                    onPress: () => {
-                        setInterestedUsers(prev => 
-                            prev.map(u => u.id === userId ? { ...u, status: 'declined' } : u)
-                        );
-                    }
-                }
-            ]
-        );
-    };
-    
-    const handleViewProfile = (userId: string) => {
-        // Navigate to detailed user profile (to be implemented)
-        console.log('View profile:', userId);
-    };
-    
-    const formatTime = (date: Date) => {
-        const now = new Date();
-        const diff = now.getTime() - date.getTime();
-        const hours = Math.floor(diff / (1000 * 60 * 60));
-        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-        
-        if (hours < 1) return 'Just now';
-        if (hours < 24) return `${hours}h ago`;
-        return `${days}d ago`;
-    };
+    }
 
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
-            {/* Header */}
-            <Header 
+            <Header
                 title="Interested Users"
                 user={user}
                 onProfilePress={() => router.push('/(landlord)/profile')}
             />
-            
+
             {/* Property Filter */}
             <View style={styles.filterContainer}>
-                <ScrollView 
-                    horizontal 
+                <ScrollView
+                    horizontal
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={styles.filterScroll}
                 >
-                    {MOCK_PROPERTIES.map(property => (
+                    {uniqueProperties.map(property => (
                         <TouchableOpacity
                             key={property.id}
                             style={[
@@ -177,37 +175,41 @@ export default function LandlordInterestedScreen() {
                     ))}
                 </ScrollView>
             </View>
-            
-            {filteredUsers.length === 0 ? (
-                <EmptyState 
+
+            {filteredMatches.length === 0 ? (
+                <EmptyState
                     icon="people-outline"
-                    title="No interested users"
+                    title="No pending interest"
                     description={
-                        selectedProperty === 'all' 
-                            ? "When users show interest in your properties, they'll appear here."
-                            : "No users have shown interest in this property yet."
+                        selectedProperty === 'all'
+                            ? "When tenants like your properties, they'll appear here."
+                            : "No new users have shown interest in this property yet."
                     }
+                    actionLabel="Refresh"
+                    onAction={onRefresh}
                 />
             ) : (
                 <FlatList
-                    data={filteredUsers}
-                    keyExtractor={item => item.id}
+                    data={filteredMatches}
+                    keyExtractor={item => item.id.toString()}
                     renderItem={({ item }) => (
                         <UserCard
-                            name={item.name}
-                            avatar={item.avatar}
-                            occupation={item.occupation}
-                            age={item.age}
-                            bio={item.bio}
-                            propertyTitle={item.propertyTitle}
-                            timestamp={formatTime(item.interestedAt)}
-                            onAccept={() => handleAccept(item.id)}
-                            onDecline={() => handleDecline(item.id)}
-                            onViewProfile={() => handleViewProfile(item.id)}
+                            name={item.tenant.firstName}
+                            avatar={item.tenant.picture}
+                            occupation={item.tenant.occupation || "Potential Tenant"}
+                            age={item.tenant.age}
+                            bio={item.tenant.bio}
+                            propertyTitle={item.property.title}
+                            onAccept={() => handleAccept(item.tenant.id, item.property.id)}
+                            onDecline={() => handleDecline(item.tenant.id, item.property.id)}
+                            onViewProfile={() => handleViewProfile(item.tenant.id)}
                         />
                     )}
                     contentContainerStyle={styles.listContent}
                     showsVerticalScrollIndicator={false}
+                    refreshControl={
+                        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Blue[600]} />
+                    }
                 />
             )}
         </View>
@@ -215,40 +217,13 @@ export default function LandlordInterestedScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: Neutral[50],
-    },
-    filterContainer: {
-        backgroundColor: '#FFFFFF',
-        borderBottomWidth: 1,
-        borderBottomColor: Neutral[100],
-    },
-    filterScroll: {
-        paddingHorizontal: Spacing.base,
-        paddingVertical: Spacing.sm,
-        gap: Spacing.sm,
-    },
-    filterChip: {
-        paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.sm,
-        borderRadius: BorderRadius.full,
-        backgroundColor: Neutral[100],
-        marginRight: Spacing.sm,
-    },
-    filterChipActive: {
-        backgroundColor: Blue[600],
-    },
-    filterChipText: {
-        fontSize: Typography.size.sm,
-        color: Neutral[600],
-        fontWeight: Typography.weight.medium,
-    },
-    filterChipTextActive: {
-        color: '#FFFFFF',
-    },
-    listContent: {
-        padding: Spacing.base,
-        paddingBottom: 100,
-    },
+    container: { flex: 1, backgroundColor: Neutral[50] },
+    centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    filterContainer: { backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: Neutral[100] },
+    filterScroll: { paddingHorizontal: Spacing.base, paddingVertical: Spacing.sm, flexDirection: 'row' },
+    filterChip: { paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: BorderRadius.full, backgroundColor: Neutral[100], marginRight: Spacing.sm },
+    filterChipActive: { backgroundColor: Blue[600] },
+    filterChipText: { fontSize: Typography.size.sm, color: Neutral[600], fontWeight: Typography.weight.medium },
+    filterChipTextActive: { color: '#FFFFFF' },
+    listContent: { padding: Spacing.base, paddingBottom: 100 }
 });

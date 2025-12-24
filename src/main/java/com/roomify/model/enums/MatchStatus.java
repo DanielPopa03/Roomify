@@ -1,7 +1,9 @@
-package com.roomify.model;
+package com.roomify.model.enums;
 
 public enum MatchStatus {
-    TENANT_LIKED,   // Tenant swiped right (Landlord hasn't seen/acted yet)
-    LANDLORD_LIKED, // Landlord swiped right (Tenant hasn't seen/acted yet)
-    MATCHED         // Both swiped right -> It's a Match!
+    TENANT_LIKED,
+    LANDLORD_LIKED,
+    MATCHED,
+    LANDLORD_DECLINED, // Add this
+    TENANT_DECLINED    // Recommended for completeness
 }

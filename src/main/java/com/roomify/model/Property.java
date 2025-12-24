@@ -1,10 +1,9 @@
 package com.roomify.model;
 
+import com.roomify.model.enums.LayoutType;
+import com.roomify.model.enums.PreferredTenantType;
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -14,18 +13,21 @@ import java.util.Set;
 
 @Entity
 @Table(name = "properties")
-@Data                // Generates Getters, Setters, toString, equals, and hashCode
-@NoArgsConstructor   // REQUIRED by Hibernate/JPA to create the object
-@AllArgsConstructor  // Generates a constructor with all fields
-@Builder             // Allows you to use Property.builder().title("...").build()
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Property {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "owner_id", nullable = false)
-    private String ownerId;
+    // --- CHANGED: Replaced String ownerId with User relationship ---
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_id", nullable = false) // This creates the Foreign Key
+    private User owner;
+    // ---------------------------------------------------------------
 
     @Column(nullable = false)
     private String title;
@@ -65,7 +67,7 @@ public class Property {
     )
     @Enumerated(EnumType.STRING)
     @Column(name = "tenant_type")
-    @Builder.Default // Ensures the builder uses this default empty set instead of null
+    @Builder.Default
     private Set<PreferredTenantType> preferredTenants = new HashSet<>();
 
     @OneToMany(mappedBy = "property", cascade = CascadeType.ALL, orphanRemoval = true)
@@ -78,4 +80,7 @@ public class Property {
 
     @Column(name = "longitude")
     private Double longitude;
+
+    @org.hibernate.annotations.Formula("(SELECT COUNT(*) FROM matches m WHERE m.property_id = id AND m.status = 'TENANT_LIKED')")
+    private int interestedCount;
 }

@@ -2,8 +2,13 @@ package com.roomify.service;
 
 import com.roomify.dto.PropertyRequest;
 import com.roomify.model.*;
+import com.roomify.model.enums.LayoutType;
+import com.roomify.model.enums.PreferredTenantType;
+import com.roomify.repository.MatchRepository;
 import com.roomify.repository.PropertyRepository;
+import com.roomify.repository.UserRepository;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,12 +26,19 @@ import java.util.stream.Collectors;
 public class PropertyService {
 
     private final PropertyRepository propertyRepository;
+    private final MatchRepository matchRepository;
+    private final UserRepository userRepository;
     private final GeocodingService geocodingService;
     private final Path rootLocation = Paths.get("uploads");
     private static final int MAX_IMAGES = 7;
 
-    public PropertyService(PropertyRepository propertyRepository, GeocodingService geocodingService) {
+    public PropertyService(PropertyRepository propertyRepository,
+                           MatchRepository matchRepository,
+                           UserRepository userRepository,
+                           GeocodingService geocodingService) {
         this.propertyRepository = propertyRepository;
+        this.matchRepository = matchRepository;
+        this.userRepository = userRepository;
         this.geocodingService = geocodingService;
         initStorage();
     }
@@ -39,118 +51,67 @@ public class PropertyService {
         }
     }
 
-    // --- REORDER LOGIC (Unchanged) ---
-    private void reorderImages(Property property, List<String> orderedIdentifiers, List<PropertyImage> newImages) {
-        if (property.getImages() == null) {
-            property.setImages(new ArrayList<>());
-        }
+    /**
+     * Deletes all properties owned by a landlord, including physical images
+     * and associated matches. Called during account deletion.
+     */
+    @Transactional
+    public void deleteAllByLandlord(String landlordId) {
+        // Find all properties for this owner ID
+        List<Property> properties = propertyRepository.findByOwner_Id(landlordId, Pageable.unpaged()).getContent();
 
-        Map<Long, PropertyImage> existingImageMap = new HashMap<>();
-        for (PropertyImage img : property.getImages()) {
-            if (img.getId() != null) {
-                existingImageMap.put(img.getId(), img);
-            }
-        }
+        for (Property property : properties) {
+            // Delete associated matches
+            matchRepository.deleteByPropertyId(property.getId());
 
-        List<PropertyImage> reorderedList = new ArrayList<>();
-        int orderIndex = 0;
-        int newImagePointer = 0;
-
-        if (orderedIdentifiers != null) {
-            for (String identifier : orderedIdentifiers) {
-                if (identifier.startsWith("ID_")) {
-                    try {
-                        Long id = Long.parseLong(identifier.substring(3));
-                        PropertyImage img = existingImageMap.get(id);
-                        if (img != null) {
-                            img.setOrderIndex(orderIndex++);
-                            img.setProperty(property);
-                            reorderedList.add(img);
-                            existingImageMap.remove(id);
-                        }
-                    } catch (NumberFormatException ignored) {}
-                } else if (identifier.startsWith("NEW_")) {
-                    if (newImagePointer < newImages.size()) {
-                        PropertyImage img = newImages.get(newImagePointer);
-                        img.setOrderIndex(orderIndex++);
-                        img.setProperty(property);
-                        reorderedList.add(img);
-                        newImagePointer++;
-                    }
+            // Delete physical images
+            if (property.getImages() != null) {
+                for (PropertyImage img : property.getImages()) {
+                    deleteFileFromDisk(img.getUrl());
                 }
             }
-        }
-
-        // Append leftovers to prevent accidental data loss (safety net)
-        for (PropertyImage remaining : existingImageMap.values()) {
-            remaining.setOrderIndex(orderIndex++);
-            reorderedList.add(remaining);
-        }
-
-        while (newImagePointer < newImages.size()) {
-            PropertyImage img = newImages.get(newImagePointer);
-            img.setOrderIndex(orderIndex++);
-            img.setProperty(property);
-            reorderedList.add(img);
-            newImagePointer++;
-        }
-
-        if (property.getImages() == null) {
-            property.setImages(reorderedList);
-        } else {
-            property.getImages().clear();
-            property.getImages().addAll(reorderedList);
+            propertyRepository.delete(property);
         }
     }
 
-    private void resolveLocationLogic(PropertyRequest request) {
-        // Call the geocoding service to fill in the blanks
-        GeocodingService.LocationResult result = geocodingService.resolveLocation(
-                request.getAddress(),
-                request.getLatitude(),
-                request.getLongitude()
-        );
+    public List<Property> getFeedForUser(String userId) {
+        User user = userRepository.findById(userId).orElseThrow(() -> new RuntimeException("User not found"));
 
-        // Update the request object with the deduced data
-        request.setAddress(result.address);
-        request.setLatitude(result.latitude);
-        request.setLongitude(result.longitude);
-
-        // Validation: If we still don't have an address, we can't save because DB requires it.
-        if (request.getAddress() == null || request.getAddress().isBlank()) {
-            throw new RuntimeException("Address is required and could not be deduced from coordinates.");
+        // If user is not a Tenant (Role USER/TENANT), return generic feed to prevent crash
+        if (!user.getRole().getName().equals("USER") && !user.getRole().getName().equals("TENANT")) {
+            return propertyRepository.findAll(PageRequest.of(0, 20)).getContent();
         }
+
+        return propertyRepository.findFeedForTenant(userId);
     }
 
     @Transactional
-    public Property createProperty(PropertyRequest request, List<MultipartFile> files, String ownerId) {
+    public Property createProperty(PropertyRequest request, List<MultipartFile> files, String userId) {
         int newFilesCount = (files == null) ? 0 : files.size();
 
         if (newFilesCount < 1) throw new RuntimeException("Validation Error: You must upload at least one photo.");
         if (newFilesCount > MAX_IMAGES) throw new RuntimeException("Too many images.");
 
+        // FIX: Find by ID (Primary Key) to support Facebook users without emails
+        User owner = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+
         Property property = new Property();
-        property.setOwnerId(ownerId);
+        property.setOwner(owner);
 
         resolveLocationLogic(request);
-
         updateEntityFromRequest(property, request);
 
-        // 1. Upload new files
         List<PropertyImage> newImages = new ArrayList<>();
         if (files != null && !files.isEmpty()) {
             newImages = saveFiles(files, property);
         }
 
         try {
-            // 2. Attach and Save
             property.setImages(new ArrayList<>());
             reorderImages(property, request.getOrderedIdentifiers(), newImages);
             return propertyRepository.save(property);
-
         } catch (Exception e) {
-            // ROLLBACK CLEANUP: If DB save fails, delete the files we just uploaded
-            // so they don't become orphans.
             for (PropertyImage img : newImages) {
                 deleteFileFromDisk(img.getUrl());
             }
@@ -159,49 +120,42 @@ public class PropertyService {
     }
 
     @Transactional
-    public Property updateProperty(Long id, PropertyRequest request, List<MultipartFile> newFiles, String ownerId) {
+    public Property updateProperty(Long id, PropertyRequest request, List<MultipartFile> newFiles, String userId) {
         Property property = propertyRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Property not found"));
 
-        if (!property.getOwnerId().equals(ownerId)) throw new RuntimeException("Unauthorized");
+        // FIX: Verify ownership using ID
+        if (!property.getOwner().getId().equals(userId)) {
+            throw new RuntimeException("Unauthorized: You do not own this property");
+        }
 
         updateEntityFromRequest(property, request);
 
-        // 1. Handle Explicit Deletions FIRST
         if (request.getDeletedImageIds() != null && !request.getDeletedImageIds().isEmpty()) {
             List<PropertyImage> imagesToDelete = property.getImages().stream()
                     .filter(img -> request.getDeletedImageIds().contains(img.getId()))
                     .collect(Collectors.toList());
 
             for (PropertyImage img : imagesToDelete) {
-                // IMMEDIATE CLEANUP: Delete file from disk right now
                 deleteFileFromDisk(img.getUrl());
                 property.getImages().remove(img);
             }
         }
 
-        // 2. Upload New Files
         List<PropertyImage> newImagesList = new ArrayList<>();
         if (newFiles != null && !newFiles.isEmpty()) {
             newImagesList = saveFiles(newFiles, property);
         }
 
         try {
-            // 3. Reorder and Save
             reorderImages(property, request.getOrderedIdentifiers(), newImagesList);
 
             if (property.getImages().isEmpty()) {
                 throw new RuntimeException("Validation Error: You must have at least one photo.");
             }
-            if (property.getImages().size() > MAX_IMAGES) {
-                throw new RuntimeException("Cannot save: Total images would exceed limit of " + MAX_IMAGES);
-            }
 
             return propertyRepository.save(property);
-
         } catch (Exception e) {
-            // ROLLBACK CLEANUP: If DB save fails, delete the files we just uploaded.
-            // Note: We do NOT restore the files deleted in step 1. Those are gone.
             for (PropertyImage img : newImagesList) {
                 deleteFileFromDisk(img.getUrl());
             }
@@ -210,13 +164,17 @@ public class PropertyService {
     }
 
     @Transactional
-    public void deleteProperty(Long id, String ownerId) {
+    public void deleteProperty(Long id, String userId) {
         Property property = propertyRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Property not found"));
 
-        if (!property.getOwnerId().equals(ownerId)) throw new RuntimeException("Unauthorized");
+        // FIX: Verify ownership using ID
+        if (!property.getOwner().getId().equals(userId)) {
+            throw new RuntimeException("Unauthorized");
+        }
 
-        // CLEANUP: Delete all associated files from disk
+        matchRepository.deleteByPropertyId(property.getId());
+
         if (property.getImages() != null) {
             for (PropertyImage img : property.getImages()) {
                 deleteFileFromDisk(img.getUrl());
@@ -231,18 +189,11 @@ public class PropertyService {
     private void deleteFileFromDisk(String fileUrl) {
         if (fileUrl == null || fileUrl.isEmpty()) return;
         try {
-            // Parse filename from URL: ".../api/properties/images/uuid_filename.jpg" -> "uuid_filename.jpg"
             String filename = fileUrl.substring(fileUrl.lastIndexOf("/") + 1);
-            Path filePath = this.rootLocation.resolve(filename);
-
-            // Files.deleteIfExists returns true if deleted, false if not found
-            boolean deleted = Files.deleteIfExists(filePath);
-            if (deleted) {
-                System.out.println("Deleted file: " + filename);
-            }
+            Path filePath = this.rootLocation.resolve(filename).normalize();
+            Files.deleteIfExists(filePath);
         } catch (IOException e) {
-            System.err.println("Warning: Could not delete file: " + fileUrl + " (" + e.getMessage() + ")");
-            // We do NOT throw exception here, so the DB transaction can still proceed/rollback gracefully
+            System.err.println("Warning: Could not delete file: " + fileUrl);
         }
     }
 
@@ -254,10 +205,6 @@ public class PropertyService {
                 if (originalName == null || originalName.isBlank()) originalName = "photo.jpg";
 
                 originalName = originalName.replaceAll("[^a-zA-Z0-9.-]", "_");
-                if (!originalName.toLowerCase().endsWith(".jpg") && !originalName.toLowerCase().endsWith(".jpeg")) {
-                    originalName += ".jpg";
-                }
-
                 String filename = UUID.randomUUID().toString() + "_" + originalName;
                 Files.copy(file.getInputStream(), this.rootLocation.resolve(filename));
 
@@ -268,16 +215,80 @@ public class PropertyService {
 
                 imageEntities.add(PropertyImage.builder().url(url).property(property).build());
             } catch (IOException e) {
-                // If one fails, we should probably stop and throw,
-                // which will trigger the rollback in the calling method
-                throw new RuntimeException("Failed to store file " + file.getOriginalFilename(), e);
+                throw new RuntimeException("Failed to store file", e);
             }
         }
         return imageEntities;
     }
 
-    public Page<Property> getPropertiesByUser(String ownerId, Pageable pageable) {
-        return propertyRepository.findByOwnerId(ownerId, pageable);
+    private void reorderImages(Property property, List<String> orderedIdentifiers, List<PropertyImage> newImages) {
+        if (property.getImages() == null) property.setImages(new ArrayList<>());
+
+        Map<Long, PropertyImage> existingImageMap = new HashMap<>();
+        for (PropertyImage img : property.getImages()) {
+            if (img.getId() != null) existingImageMap.put(img.getId(), img);
+        }
+
+        List<PropertyImage> reorderedList = new ArrayList<>();
+        int orderIndex = 0;
+        int newImagePointer = 0;
+
+        if (orderedIdentifiers != null) {
+            for (String identifier : orderedIdentifiers) {
+                if (identifier.startsWith("ID_")) {
+                    try {
+                        Long id = Long.parseLong(identifier.substring(3));
+                        PropertyImage img = existingImageMap.get(id);
+                        if (img != null) {
+                            img.setOrderIndex(orderIndex++);
+                            reorderedList.add(img);
+                            existingImageMap.remove(id);
+                        }
+                    } catch (NumberFormatException ignored) {}
+                } else if (identifier.startsWith("NEW_")) {
+                    if (newImagePointer < newImages.size()) {
+                        PropertyImage img = newImages.get(newImagePointer++);
+                        img.setOrderIndex(orderIndex++);
+                        img.setProperty(property);
+                        reorderedList.add(img);
+                    }
+                }
+            }
+        }
+
+        existingImageMap.values().forEach(img -> {
+            img.setOrderIndex(reorderedList.size());
+            reorderedList.add(img);
+        });
+
+        while (newImagePointer < newImages.size()) {
+            PropertyImage img = newImages.get(newImagePointer++);
+            img.setOrderIndex(reorderedList.size());
+            img.setProperty(property);
+            reorderedList.add(img);
+        }
+
+        property.getImages().clear();
+        property.getImages().addAll(reorderedList);
+    }
+
+    private void resolveLocationLogic(PropertyRequest request) {
+        GeocodingService.LocationResult result = geocodingService.resolveLocation(
+                request.getAddress(),
+                request.getLatitude(),
+                request.getLongitude()
+        );
+        request.setAddress(result.address);
+        request.setLatitude(result.latitude);
+        request.setLongitude(result.longitude);
+
+        if (request.getAddress() == null || request.getAddress().isBlank()) {
+            throw new RuntimeException("Address is required.");
+        }
+    }
+
+    public Page<Property> getPropertiesByUser(String userId, Pageable pageable) {
+        return propertyRepository.findByOwner_Id(userId, pageable);
     }
 
     public Page<Property> getAllProperties(Pageable pageable) {
@@ -293,12 +304,8 @@ public class PropertyService {
         property.setPrice(request.getPrice());
         property.setSurface(request.getSurface());
         property.setAddress(request.getAddress());
-
-        // 👇 ADD THESE MISSING LINES 👇
         property.setLatitude(request.getLatitude());
         property.setLongitude(request.getLongitude());
-        // 👆 This saves the deduced location to the DB 👆
-
         property.setDescription(request.getDescription());
         property.setNumberOfRooms(request.getNumberOfRooms());
         property.setHasExtraBathroom(request.getHasExtraBathroom() != null ? request.getHasExtraBathroom() : false);
