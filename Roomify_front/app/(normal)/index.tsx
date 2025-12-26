@@ -230,8 +230,16 @@ export default function TenantBrowseScreen() {
                 // Map Backend Property to Frontend shape
                 const mapped = data.map((p: any) => ({
                     ...p,
-                    // Ensure images is array of strings for display
-                    images: p.images?.map((img: any) => img.url.replace('localhost', MY_IP).replace('127.0.0.1', MY_IP)) || []
+                    images: p.images?.map((img: any) => {
+                        const url = img.url;
+                        // Check if the URL is relative (doesn't start with http)
+                        if (!url.startsWith('http')) {
+                            // Prepend protocol, IP, and the correct backend port (8080)
+                            return `http://${MY_IP}:8080${url}`;
+                        }
+                        // If it is already absolute, just fix the localhost/127.0.0.1 IP
+                        return url.replace('localhost', MY_IP).replace('127.0.0.1', MY_IP);
+                    }) || []
                 }));
 
                 setProperties(mapped);
@@ -270,13 +278,14 @@ export default function TenantBrowseScreen() {
             if (direction === 'right' && currentProp) {
                 try {
                     const token = await getAccessToken();
-                    const response = await fetch(`http://${MY_IP}:8080/api/matches/swipe/tenant`, {
+                    const response = await fetch(`http://${MY_IP}:8080/api/matches/tenant/swipe/${currentProp.id}`, {
                         method: 'POST',
                         headers: {
                             'Authorization': `Bearer ${token}`,
                             'Content-Type': 'application/json'
                         },
-                        body: JSON.stringify({ propertyId: currentProp.id })
+                        // The backend gets the ID from the URL, so the body can be empty or omitted
+                        body: JSON.stringify({})
                     });
 
                     if (response.ok) {
