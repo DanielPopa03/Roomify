@@ -61,7 +61,7 @@ export default function NormalLayout() {
                 screenOptions={{
                     tabBarActiveTintColor: Blue[600],
                     tabBarInactiveTintColor: Neutral[400],
-                    headerShown: true, // Header is now ON for all screens
+                    headerShown: true, // Header is now ON for all screens by default
                     tabBarButton: HapticTab,
                     tabBarStyle: Platform.select({
                         ios: {
@@ -100,7 +100,7 @@ export default function NormalLayout() {
                     name="match"
                     options={{
                         title: 'Matches',
-                        // CHANGED: Title is now "Roomify" here too
+                        // Title is now "Roomify" here too
                         header: () => <CustomHeader title="Roomify" showProfileButton={true} />,
                         tabBarIcon: ({ color, focused }) => (
                             <Ionicons name={focused ? 'chatbubbles' : 'chatbubbles-outline'} size={24} color={color} />
@@ -112,7 +112,6 @@ export default function NormalLayout() {
                     name="profile"
                     options={{
                         title: 'Profile',
-                        // CHANGED: Title is now "Roomify" here too.
                         // I kept showProfileButton={false} because you are already ON the profile page.
                         header: () => <CustomHeader title="Roomify" showProfileButton={false} />,
                         tabBarIcon: ({ color, focused }) => (
@@ -120,6 +119,18 @@ export default function NormalLayout() {
                         ),
                     }}
                 />
+
+                {/* --- HIDDEN CHAT ROOM SCREEN --- */}
+                <Tabs.Screen
+                    name="chat-room"
+                    options={{
+                        href: null, // Hides from the bottom tab bar
+                        title: 'Chat',
+                        headerShown: false, // We use the custom header inside chat-room.tsx
+                        tabBarStyle: { display: 'none' } // Hides the tab bar while chatting
+                    }}
+                />
+
             </Tabs>
         </RoleGuard>
     );

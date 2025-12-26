@@ -39,4 +39,6 @@ public interface MatchRepository extends JpaRepository<Match, Long> {
     void deleteByTenantId(String tenantId);
 
     Optional<Match> findByTenantAndPropertyId(String tenantId, Long propertyId);
+    List<Match> findByLandlord_IdAndStatusOrderByUpdatedAtDesc(String landlordId, MatchStatus status);
+    List<Match> findByTenant_IdAndStatusOrderByUpdatedAtDesc(String tenantId, MatchStatus status);
 }
