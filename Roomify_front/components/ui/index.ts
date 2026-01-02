@@ -15,6 +15,8 @@ export { ImageCarousel } from './ImageCarousel';
 export { ImageGalleryModal } from './ImageGalleryModal';
 export { Input } from './Input';
 export { PropertyCard } from './PropertyCard';
+export { PropertyContextBar } from './PropertyContextBar';
+export { PropertyDetailModal } from './PropertyDetailModal';
 export { SwipeButtons } from './SwipeButtons';
 export { Snackbar } from './Snackbar';
 export { TabBar } from './TabBar';

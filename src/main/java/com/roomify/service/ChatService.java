@@ -2,6 +2,7 @@ package com.roomify.service;
 
 import com.roomify.model.ChatMessage;
 import com.roomify.model.Match;
+import com.roomify.model.Property;
 import com.roomify.model.User;
 import com.roomify.model.enums.MatchStatus;
 import com.roomify.repository.ChatMessageRepository;
@@ -183,5 +184,50 @@ public class ChatService {
             unreadMessages.forEach(msg -> msg.setRead(true));
             chatMessageRepository.saveAll(unreadMessages);
         }
+    }
+
+    /**
+     * Get Match Context - Property details and other participant info
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> getMatchContext(Long matchId, String currentUserId) {
+        // Use JOIN FETCH query to eagerly load property, images, and participants
+        Match match = matchRepository.findByIdWithPropertyAndImages(matchId)
+                .orElseThrow(() -> new RuntimeException("Match not found"));
+
+        Map<String, Object> context = new HashMap<>();
+        context.put("matchId", match.getId());
+
+        // Property Details
+        Map<String, Object> propertyData = new HashMap<>();
+        Property property = match.getProperty();
+        propertyData.put("id", property.getId());
+        propertyData.put("title", property.getTitle());
+        propertyData.put("price", property.getPrice());
+        propertyData.put("address", property.getAddress());
+        
+        // Get first image URL if available
+        String imageUrl = null;
+        if (property.getImages() != null && !property.getImages().isEmpty()) {
+            imageUrl = property.getImages().get(0).getUrl();
+        }
+        propertyData.put("imageUrl", imageUrl);
+        
+        context.put("property", propertyData);
+
+        // Other Participant Details (tenant for landlord, landlord for tenant)
+        Map<String, Object> participantData = new HashMap<>();
+        User otherParticipant = currentUserId.equals(match.getLandlord().getId()) 
+            ? match.getTenant() 
+            : match.getLandlord();
+        
+        participantData.put("id", otherParticipant.getId());
+        participantData.put("name", otherParticipant.getFirstName());
+        context.put("otherParticipant", participantData);
+
+        // Match Status
+        context.put("status", match.getStatus().name());
+
+        return context;
     }
 }

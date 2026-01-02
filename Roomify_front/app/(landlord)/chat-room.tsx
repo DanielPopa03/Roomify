@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Blue, Neutral, Spacing, Typography, BorderRadius } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { PropertyContextBar, PropertyDetailModal } from '@/components/ui';
 
 export default function ChatRoomScreen() {
     const { chatId, title } = useLocalSearchParams();
@@ -22,6 +23,9 @@ export default function ChatRoomScreen() {
     const [isLoading, setIsLoading] = useState(true);
     const [sending, setSending] = useState(false);
     const [accessToken, setAccessToken] = useState<string | null>(null);
+    const [propertyContext, setPropertyContext] = useState<any>(null);
+    const [contextLoading, setContextLoading] = useState(true);
+    const [showPropertyModal, setShowPropertyModal] = useState(false);
 
     const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
     const currentUserId = dbUser?.id || '';
@@ -66,7 +70,26 @@ export default function ChatRoomScreen() {
         enabled: !!accessToken && !!chatId,
     });
 
-    // --- 1. Mark Messages as Read ---
+    // --- 1. Fetch Property Context ---
+    const fetchPropertyContext = useCallback(async () => {
+        try {
+            const token = await getAccessToken();
+            const response = await fetch(`http://${MY_IP}:8080/api/chats/${chatId}/context`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                setPropertyContext(data);
+            }
+        } catch (error) {
+            console.error("Failed to fetch property context", error);
+        } finally {
+            setContextLoading(false);
+        }
+    }, [chatId, getAccessToken, MY_IP]);
+
+    // --- 2. Mark Messages as Read ---
     const markAsRead = useCallback(async () => {
         try {
             const token = await getAccessToken();
@@ -79,7 +102,7 @@ export default function ChatRoomScreen() {
         }
     }, [chatId, getAccessToken, MY_IP]);
 
-    // --- 2. Fetch Messages ---
+    // --- 3. Fetch Messages ---
     const fetchMessages = useCallback(async (showLoading = false) => {
         try {
             const token = await getAccessToken();
@@ -98,8 +121,9 @@ export default function ChatRoomScreen() {
         }
     }, [chatId, getAccessToken, MY_IP]);
 
-    // --- 3. Lifecycle & Polling (fallback) ---
+    // --- 4. Lifecycle & Polling (fallback) ---
     useEffect(() => {
+        fetchPropertyContext(); // Fetch property context first
         fetchMessages(true);
         markAsRead(); // Mark read immediately on open
 
@@ -112,9 +136,9 @@ export default function ChatRoomScreen() {
         }, isConnected ? 10000 : 3000); // Slower polling if WebSocket connected
 
         return () => clearInterval(interval);
-    }, [fetchMessages, markAsRead, isConnected]);
+    }, [fetchMessages, markAsRead, isConnected, fetchPropertyContext]);
 
-    // --- 4. Send Message Logic ---
+    // --- 5. Send Message Logic ---
     const sendMessage = async () => {
         if (!inputText.trim()) return;
 
@@ -162,7 +186,7 @@ export default function ChatRoomScreen() {
         }
     };
 
-    // --- 5. Handle Enter vs Shift+Enter ---
+    // --- 6. Handle Enter vs Shift+Enter ---
     const handleKeyPress = (e: any) => {
         if (e.nativeEvent.key === 'Enter' && !e.nativeEvent.shiftKey) {
             e.preventDefault(); // Stop newline
@@ -222,6 +246,25 @@ export default function ChatRoomScreen() {
                     <Ionicons name="ellipsis-horizontal" size={24} color={Blue[600]} />
                 </TouchableOpacity>
             </View>
+
+            {/* Property Context Bar */}
+            <PropertyContextBar
+                property={propertyContext?.property}
+                onPress={() => {
+                    if (propertyContext?.property?.id) {
+                        console.log('Opening property modal for:', propertyContext.property.id);
+                        setShowPropertyModal(true);
+                    }
+                }}
+                loading={contextLoading}
+            />
+
+            {/* Property Detail Modal */}
+            <PropertyDetailModal
+                visible={showPropertyModal}
+                onClose={() => setShowPropertyModal(false)}
+                propertyId={propertyContext?.property?.id || null}
+            />
 
             {isLoading ? (
                 <View style={styles.centered}><ActivityIndicator color={Blue[600]} /></View>

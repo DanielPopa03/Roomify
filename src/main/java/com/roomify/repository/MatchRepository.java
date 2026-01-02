@@ -19,6 +19,14 @@ import java.util.Optional;
 public interface MatchRepository extends JpaRepository<Match, Long> {
     List<Match> findByLandlord_IdAndStatus(String landlordId, MatchStatus status);
 
+    @Query("SELECT m FROM Match m " +
+           "LEFT JOIN FETCH m.property p " +
+           "LEFT JOIN FETCH p.images " +
+           "LEFT JOIN FETCH m.tenant " +
+           "LEFT JOIN FETCH m.landlord " +
+           "WHERE m.id = :matchId")
+    Optional<Match> findByIdWithPropertyAndImages(@Param("matchId") Long matchId);
+
     @Query("SELECT m.property.id FROM Match m WHERE m.tenant.id = :tenantId AND (m.status = 'TENANT_LIKED' OR m.status = 'MATCHED')")
     List<Long> findPropertyIdsInteractedByTenant(@Param("tenantId") String tenantId);
 

@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Blue, Neutral, Spacing, Typography, BorderRadius } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { PropertyContextBar, PropertyDetailModal } from '@/components/ui';
 
 export default function TenantChatRoomScreen() {
     const { chatId, title, subTitle } = useLocalSearchParams();
@@ -22,6 +23,9 @@ export default function TenantChatRoomScreen() {
     const [isLoading, setIsLoading] = useState(true);
     const [sending, setSending] = useState(false);
     const [accessToken, setAccessToken] = useState<string | null>(null);
+    const [propertyContext, setPropertyContext] = useState<any>(null);
+    const [contextLoading, setContextLoading] = useState(true);
+    const [showPropertyModal, setShowPropertyModal] = useState(false);
 
     const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
     const currentUserId = dbUser?.id || '';
@@ -66,6 +70,25 @@ export default function TenantChatRoomScreen() {
         enabled: !!accessToken && !!chatId,
     });
 
+    // --- Fetch Property Context ---
+    const fetchPropertyContext = useCallback(async () => {
+        try {
+            const token = await getAccessToken();
+            const response = await fetch(`http://${MY_IP}:8080/api/chats/${chatId}/context`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                setPropertyContext(data);
+            }
+        } catch (error) {
+            console.error("Failed to fetch property context", error);
+        } finally {
+            setContextLoading(false);
+        }
+    }, [chatId, getAccessToken, MY_IP]);
+
     // --- 1. Mark Messages as Read ---
     const markAsRead = useCallback(async () => {
         try {
@@ -100,6 +123,7 @@ export default function TenantChatRoomScreen() {
 
     // --- 3. Lifecycle & Polling (fallback) ---
     useEffect(() => {
+        fetchPropertyContext(); // Fetch property context first
         fetchMessages(true);
         markAsRead();
 
@@ -112,7 +136,7 @@ export default function TenantChatRoomScreen() {
         }, isConnected ? 10000 : 3000); // Slower polling if WebSocket connected
 
         return () => clearInterval(interval);
-    }, [fetchMessages, markAsRead, isConnected]);
+    }, [fetchMessages, markAsRead, isConnected, fetchPropertyContext]);
 
     // --- 4. Send Message Logic ---
     const sendMessage = async () => {
@@ -220,6 +244,25 @@ export default function TenantChatRoomScreen() {
                 </View>
                 <View style={{ width: 32 }} />
             </View>
+
+            {/* Property Context Bar */}
+            <PropertyContextBar
+                property={propertyContext?.property}
+                onPress={() => {
+                    if (propertyContext?.property?.id) {
+                        console.log('Opening property modal for:', propertyContext.property.id);
+                        setShowPropertyModal(true);
+                    }
+                }}
+                loading={contextLoading}
+            />
+
+            {/* Property Detail Modal */}
+            <PropertyDetailModal
+                visible={showPropertyModal}
+                onClose={() => setShowPropertyModal(false)}
+                propertyId={propertyContext?.property?.id || null}
+            />
 
             {isLoading ? (
                 <View style={styles.centered}><ActivityIndicator color={Blue[600]} /></View>

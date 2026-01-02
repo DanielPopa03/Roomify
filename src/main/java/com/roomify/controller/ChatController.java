@@ -62,4 +62,13 @@ public class ChatController {
         chatService.markMessagesAsRead(matchId, jwt.getSubject());
         return ResponseEntity.ok().build();
     }
+
+    // 4. Get Match Context (Property & Participant Info)
+    @GetMapping("/{matchId}/context")
+    public ResponseEntity<Map<String, Object>> getMatchContext(
+            @PathVariable Long matchId,
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        return ResponseEntity.ok(chatService.getMatchContext(matchId, jwt.getSubject()));
+    }
 }
