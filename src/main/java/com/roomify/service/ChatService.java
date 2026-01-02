@@ -7,6 +7,7 @@ import com.roomify.model.enums.MatchStatus;
 import com.roomify.repository.ChatMessageRepository;
 import com.roomify.repository.MatchRepository;
 import com.roomify.repository.UserRepository;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,11 +21,16 @@ public class ChatService {
     private final MatchRepository matchRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final UserRepository userRepository;
+    private final SimpMessagingTemplate messagingTemplate;
 
-    public ChatService(MatchRepository matchRepository, ChatMessageRepository chatMessageRepository, UserRepository userRepository) {
+    public ChatService(MatchRepository matchRepository, 
+                       ChatMessageRepository chatMessageRepository, 
+                       UserRepository userRepository,
+                       SimpMessagingTemplate messagingTemplate) {
         this.matchRepository = matchRepository;
         this.chatMessageRepository = chatMessageRepository;
         this.userRepository = userRepository;
+        this.messagingTemplate = messagingTemplate;
     }
 
     /**
@@ -109,14 +115,28 @@ public class ChatService {
         match.setUpdatedAt(java.time.LocalDateTime.now());
         matchRepository.save(match);
 
-        // Return DTO consistent with getChatMessages
-        Map<String, Object> dto = new HashMap<>();
-        dto.put("id", saved.getId().toString());
-        dto.put("text", saved.getContent());
-        dto.put("sender", "me");
-        dto.put("timestamp", saved.getCreatedAt().format(DateTimeFormatter.ofPattern("h:mm a")));
+        // Build the DTO for the sender (shows as "me")
+        Map<String, Object> senderDto = new HashMap<>();
+        senderDto.put("id", saved.getId().toString());
+        senderDto.put("text", saved.getContent());
+        senderDto.put("sender", "me");
+        senderDto.put("senderId", senderId); // Include actual sender ID for recipient to check
+        senderDto.put("isRead", false);
+        senderDto.put("timestamp", saved.getCreatedAt().format(DateTimeFormatter.ofPattern("h:mm a")));
 
-        return dto;
+        // Build the DTO for WebSocket broadcast (includes senderId so recipient knows it's not "me")
+        Map<String, Object> broadcastDto = new HashMap<>();
+        broadcastDto.put("id", saved.getId().toString());
+        broadcastDto.put("text", saved.getContent());
+        broadcastDto.put("senderId", senderId); // Recipient will compare this to their own ID
+        broadcastDto.put("senderName", sender.getFirstName());
+        broadcastDto.put("isRead", false);
+        broadcastDto.put("timestamp", saved.getCreatedAt().format(DateTimeFormatter.ofPattern("h:mm a")));
+
+        // Broadcast to all subscribers of this chat room
+        messagingTemplate.convertAndSend("/topic/chat/" + matchId, (Object) broadcastDto);
+
+        return senderDto;
     }
 
     public List<Map<String, Object>> getTenantConversations(String tenantId) {

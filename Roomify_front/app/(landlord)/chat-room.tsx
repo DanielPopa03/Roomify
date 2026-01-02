@@ -8,20 +8,63 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Blue, Neutral, Spacing, Typography, BorderRadius } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { useWebSocket } from '@/hooks/useWebSocket';
 
 export default function ChatRoomScreen() {
     const { chatId, title } = useLocalSearchParams();
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const flatListRef = useRef<FlatList>(null);
-    const { getAccessToken } = useAuth();
+    const { getAccessToken, dbUser } = useAuth();
 
     const [messages, setMessages] = useState<any[]>([]);
     const [inputText, setInputText] = useState('');
     const [isLoading, setIsLoading] = useState(true);
     const [sending, setSending] = useState(false);
+    const [accessToken, setAccessToken] = useState<string | null>(null);
 
     const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
+    const currentUserId = dbUser?.id || '';
+
+    // Get access token on mount
+    useEffect(() => {
+        const fetchToken = async () => {
+            const token = await getAccessToken();
+            setAccessToken(token || null);
+        };
+        fetchToken();
+    }, [getAccessToken]);
+
+    // --- WebSocket for real-time messages ---
+    const handleWebSocketMessage = useCallback((message: any) => {
+        // Add the incoming message (it's from the other person)
+        const newMessage = {
+            id: message.id,
+            text: message.text,
+            sender: 'them', // It's from the other person
+            isRead: message.isRead,
+            timestamp: message.timestamp,
+        };
+
+        setMessages(prev => {
+            // Avoid duplicates
+            if (prev.some(m => m.id === message.id)) {
+                return prev;
+            }
+            return [...prev, newMessage];
+        });
+
+        // Scroll to bottom
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    }, []);
+
+    const { isConnected, error: wsError } = useWebSocket({
+        matchId: chatId as string,
+        accessToken,
+        currentUserId,
+        onMessage: handleWebSocketMessage,
+        enabled: !!accessToken && !!chatId,
+    });
 
     // --- 1. Mark Messages as Read ---
     const markAsRead = useCallback(async () => {
@@ -55,18 +98,21 @@ export default function ChatRoomScreen() {
         }
     }, [chatId, getAccessToken, MY_IP]);
 
-    // --- 3. Lifecycle & Polling ---
+    // --- 3. Lifecycle & Polling (fallback) ---
     useEffect(() => {
         fetchMessages(true);
         markAsRead(); // Mark read immediately on open
 
+        // Polling as fallback (every 10 seconds if WebSocket not connected)
         const interval = setInterval(() => {
-            fetchMessages(false);
+            if (!isConnected) {
+                fetchMessages(false);
+            }
             markAsRead(); // Keep marking read while open
-        }, 3000);
+        }, isConnected ? 10000 : 3000); // Slower polling if WebSocket connected
 
         return () => clearInterval(interval);
-    }, [fetchMessages, markAsRead]);
+    }, [fetchMessages, markAsRead, isConnected]);
 
     // --- 4. Send Message Logic ---
     const sendMessage = async () => {
@@ -101,10 +147,16 @@ export default function ChatRoomScreen() {
             });
 
             if (response.ok) {
-                fetchMessages(); // Sync real ID/Timestamp/Status
+                const savedMessage = await response.json();
+                // Replace optimistic message with real one
+                setMessages(prev => prev.map(m => 
+                    m.id === tempId ? { ...savedMessage, sender: 'me' } : m
+                ));
             }
         } catch (error) {
             console.error("Send failed", error);
+            // Remove optimistic message on failure
+            setMessages(prev => prev.filter(m => m.id !== tempId));
         } finally {
             setSending(false);
         }
@@ -158,6 +210,13 @@ export default function ChatRoomScreen() {
                 </TouchableOpacity>
                 <View style={styles.headerInfo}>
                     <Text style={styles.headerTitle}>{title || 'Chat'}</Text>
+                    {/* WebSocket status indicator */}
+                    <View style={styles.statusRow}>
+                        <View style={[styles.statusDot, { backgroundColor: isConnected ? '#4ADE80' : '#F59E0B' }]} />
+                        <Text style={styles.statusText}>
+                            {isConnected ? 'Live' : 'Polling'}
+                        </Text>
+                    </View>
                 </View>
                 <TouchableOpacity style={styles.headerAction}>
                     <Ionicons name="ellipsis-horizontal" size={24} color={Blue[600]} />
@@ -211,6 +270,9 @@ const styles = StyleSheet.create({
     headerInfo: { flex: 1, alignItems: 'center' },
     headerTitle: { fontSize: Typography.size.lg, fontWeight: Typography.weight.semibold, color: Neutral[900] },
     headerAction: { padding: Spacing.sm },
+    statusRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
+    statusDot: { width: 6, height: 6, borderRadius: 3, marginRight: 4 },
+    statusText: { fontSize: 10, color: Neutral[400] },
     listContent: { padding: Spacing.md, paddingBottom: Spacing.xl },
 
     messageBubble: { maxWidth: '80%', padding: Spacing.md, borderRadius: BorderRadius.lg, marginBottom: Spacing.sm },

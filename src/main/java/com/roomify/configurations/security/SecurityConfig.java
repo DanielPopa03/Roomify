@@ -34,6 +34,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Allow public access to property images (browsers don't send auth headers for <img> tags)
                         .requestMatchers("/api/properties/images/**").permitAll()
+                        // Allow WebSocket handshake (authentication happens via STOMP headers)
+                        .requestMatchers("/ws/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                         .anyRequest().authenticated()
