@@ -28,9 +28,9 @@ public class UserService {
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$");
 
     public UserService(UserRepository userRepository,
-                       RoleRepository roleRepository,
-                       MatchRepository matchRepository,
-                       PropertyService propertyService) {
+            RoleRepository roleRepository,
+            MatchRepository matchRepository,
+            PropertyService propertyService) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.matchRepository = matchRepository;
@@ -70,14 +70,23 @@ public class UserService {
 
         return userRepository.findById(id)
                 .map(existingUser -> {
-                    if (payload.containsKey("name")) existingUser.setFirstName((String) payload.get("name"));
-                    if (payload.containsKey("bio")) existingUser.setBio((String) payload.get("bio"));
-                    if (payload.containsKey("phoneNumber")) existingUser.setPhoneNumber(phoneInput);
-                    if (payload.containsKey("email")) existingUser.setEmail(emailInput);
+                    if (payload.containsKey("name"))
+                        existingUser.setFirstName((String) payload.get("name"));
+                    if (payload.containsKey("bio"))
+                        existingUser.setBio((String) payload.get("bio"));
+                    if (payload.containsKey("phoneNumber"))
+                        existingUser.setPhoneNumber(phoneInput);
+                    if (payload.containsKey("email"))
+                        existingUser.setEmail(emailInput);
 
                     if (payload.containsKey("role")) {
                         String roleName = ((String) payload.get("role")).toUpperCase();
                         roleRepository.findByName(roleName).ifPresent(existingUser::setRole);
+                    }
+
+                    // Handle isVideoPublic field explicitly for privacy toggle
+                    if (payload.containsKey("isVideoPublic")) {
+                        existingUser.setIsVideoPublic((Boolean) payload.get("isVideoPublic"));
                     }
 
                     return userRepository.save(existingUser);
@@ -103,7 +112,8 @@ public class UserService {
             String currentId = jwt.getSubject();
 
             Optional<User> existingUserById = userRepository.findById(currentId);
-            if (existingUserById.isPresent()) return existingUserById.get();
+            if (existingUserById.isPresent())
+                return existingUserById.get();
 
             String email = jwt.getClaimAsString("email");
             if (email == null) {
@@ -137,5 +147,14 @@ public class UserService {
         }
 
         return userRepository.existsByEmailFlexible(email.trim(), currentUserId);
+    }
+
+    /**
+     * Saves or updates a user entity.
+     * Used by interview confirmation to persist profile changes.
+     */
+    @Transactional
+    public User saveUser(User user) {
+        return userRepository.save(user);
     }
 }

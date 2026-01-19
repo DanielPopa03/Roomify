@@ -197,6 +197,41 @@ export const AuthApi = {
 };
 
 // ============================================
+// USERS API (Public Profile Fetching)
+// ============================================
+
+export interface PublicUserProfile {
+  id: string;
+  firstName?: string;
+  bio?: string;
+  jobTitle?: string;
+  smokerFriendly?: boolean;
+  petFriendly?: boolean;
+  videoUrl?: string;
+  isVideoPublic?: boolean;
+  isVerified?: boolean;
+  createdAt?: string;
+}
+
+export const UsersApi = {
+  /**
+   * Get a user's public profile by ID
+   * Used by landlords to view tenant details
+   */
+  getById: (accessToken: string, userId: string) => {
+    if (!userId || userId.trim() === '') {
+      console.error('[UsersApi.getById] Invalid userId:', userId);
+      return Promise.resolve({ error: 'Invalid user ID', status: 400 } as ApiResponse<PublicUserProfile>);
+    }
+    return fetchApi<PublicUserProfile>(
+      `/user/${encodeURIComponent(userId)}`,
+      { method: 'GET' },
+      accessToken
+    );
+  },
+};
+
+// ============================================
 // PROPERTIES API
 // ============================================
 
@@ -480,11 +515,141 @@ export const AdminApi = {
       ),
 };
 
+// ============================================
+// INTERVIEW API (Video Interview Feature)
+// ============================================
+
+export interface InterviewAnalysisResponse {
+  bio: string;
+  jobTitle: string;
+  smokerFriendly: boolean;
+  petFriendly: boolean;
+  videoUrl: string;
+  videoFilename: string;
+  geminiFileUri: string;
+}
+
+export interface InterviewConfirmationData {
+  bio: string;
+  jobTitle: string;
+  smokerFriendly: boolean;
+  petFriendly: boolean;
+  videoFilename: string;
+  isVideoPublic: boolean;
+}
+
+/**
+ * Prepares a video file for FormData upload.
+ * Handles the difference between Web (Blob/File) and Mobile (URI object).
+ * 
+ * @param videoUri - The URI of the video (file:// on mobile, blob: on web)
+ * @returns A file object suitable for FormData
+ */
+export const prepareVideoForUpload = async (videoUri: string): Promise<any> => {
+  if (Platform.OS === 'web') {
+    // Web: Fetch the blob and convert to File
+    try {
+      const response = await fetch(videoUri);
+      const blob = await response.blob();
+      return new File([blob], 'interview.mp4', { type: 'video/mp4' });
+    } catch (error) {
+      console.error('[prepareVideoForUpload] Web blob fetch failed:', error);
+      throw error;
+    }
+  } else {
+    // Mobile: Return URI object for React Native FormData
+    return {
+      uri: videoUri,
+      type: 'video/mp4',
+      name: 'interview.mp4',
+    };
+  }
+};
+
+export const InterviewApi = {
+  /**
+   * Upload and analyze interview video with Gemini AI.
+   * Returns AI-generated profile suggestions.
+   */
+  analyzeVideo: async (accessToken: string, videoUri: string): Promise<ApiResponse<InterviewAnalysisResponse>> => {
+    console.log('[InterviewApi.analyzeVideo] Starting upload...');
+    
+    try {
+      const videoFile = await prepareVideoForUpload(videoUri);
+      
+      const formData = new FormData();
+      formData.append('file', videoFile);
+
+      const url = `${API_URL}/user/interview/analyze`;
+      console.log('[InterviewApi.analyzeVideo] POSTing to:', url);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          // Note: Don't set Content-Type for FormData, browser sets it with boundary
+        },
+        body: formData,
+      });
+
+      const status = response.status;
+      console.log('[InterviewApi.analyzeVideo] Response status:', status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[InterviewApi.analyzeVideo] Error:', errorText);
+        return { error: errorText || `Request failed with status ${status}`, status };
+      }
+
+      const data = await response.json();
+      console.log('[InterviewApi.analyzeVideo] Success:', data);
+      return { data, status };
+    } catch (error) {
+      console.error('[InterviewApi.analyzeVideo] Exception:', error);
+      return {
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+        status: 0,
+      };
+    }
+  },
+
+  /**
+   * Confirm and save the interview profile data.
+   */
+  confirmProfile: async (accessToken: string, data: InterviewConfirmationData): Promise<ApiResponse<User>> => {
+    return fetchApi<User>(
+      '/user/interview/confirm',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      },
+      accessToken
+    );
+  },
+
+  /**
+   * Get the full video URL for playback.
+   */
+  getVideoUrl: (videoPath: string): string => {
+    if (!videoPath) return '';
+    if (videoPath.startsWith('http') || videoPath.startsWith('blob:') || videoPath.startsWith('file:')) {
+      return videoPath;
+    }
+    const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
+    if (videoPath.startsWith('/')) {
+      return `${baseUrl}${videoPath}`;
+    }
+    return `${baseUrl}/user/interview/video/${videoPath}`;
+  },
+};
+
 // Default export for convenience
 export default {
   Auth: AuthApi,
+  Users: UsersApi,
   Properties: PropertiesApi,
   Interactions: InteractionsApi,
   Conversations: ConversationsApi,
   Admin: AdminApi,
+  Interview: InterviewApi,
 };

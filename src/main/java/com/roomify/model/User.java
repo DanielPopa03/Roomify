@@ -46,10 +46,44 @@ public class User {
     @ManyToOne
     private Role role;
 
+    // --- Video Interview Fields ---
+    @Column(columnDefinition = "TEXT")
+    private String videoUrl;
+
+    @Column(columnDefinition = "TEXT")
+    private String videoTranscript;
+
+    @Column(name = "job_title")
+    private String jobTitle;
+
+    @Builder.Default
+    @Column(name = "is_verified")
+    private Boolean isVerified = false;
+
+    @Builder.Default
+    @Column(name = "is_video_public")
+    private Boolean isVideoPublic = false;
+
+    @Builder.Default
+    @Column(name = "smoker_friendly")
+    private Boolean smokerFriendly = false;
+
+    @Builder.Default
+    @Column(name = "pet_friendly")
+    private Boolean petFriendly = false;
+    // --- End Video Interview Fields ---
+
     public boolean isProfileComplete() {
         return firstName != null && !firstName.isBlank() &&
                 !firstName.equals("New User") && // Force them to change the default name
                 phoneNumber != null && !phoneNumber.isBlank() &&
                 email != null && !email.isBlank();
+    }
+
+    /**
+     * Checks if the user has completed the video interview verification process.
+     */
+    public boolean isVideoVerified() {
+        return Boolean.TRUE.equals(isVerified) && videoUrl != null && !videoUrl.isBlank();
     }
 }
