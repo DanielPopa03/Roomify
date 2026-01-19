@@ -1,13 +1,9 @@
 package com.roomify.model;
 
+import com.roomify.model.enums.PreferredTenantType;
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 
 @Entity
@@ -19,51 +15,49 @@ import java.util.List;
 public class User {
 
     @Id
-    @Column(name = "id", unique = true, nullable = false)
-    private String id;
+    private String id; // Auth0 Subject ID
 
-    @Column(unique = true, nullable = false)
     private String email;
-
+    private String firstName;
+    private String lastName;
+    private String picture;
     private String phoneNumber;
 
-    private String firstName;
-
-    @Column(columnDefinition = "TEXT")
+    @Column(length = 1000)
     private String bio;
 
-    private LocalDate birthDate;
-
-    private String gender;
-
-    private Double latitude;
-    private Double longitude;
-
-    @CreationTimestamp
-    private LocalDateTime createdAt;
-
-    @UpdateTimestamp
-    private LocalDateTime updatedAt;
-
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "role_id")
     private Role role;
 
-    // --- LEGACY FIELD (Kept for backward compatibility) ---
-    // The UserService automatically syncs the first photo from the list into this field.
-    @Column(name = "picture")
-    private String picture;
-
-    // --- PHOTO GALLERY ---
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "user_photos", joinColumns = @JoinColumn(name = "user_id"))
-    @Column(name = "photo_url", columnDefinition = "TEXT")
-    @Builder.Default
-    private List<String> photos = new ArrayList<>();
+    @Column(name = "photo_url")
+    private List<String> photos;
 
-    public boolean isProfileComplete() {
-        return firstName != null && !firstName.isBlank() &&
-                !firstName.equals("New User") &&
-                phoneNumber != null && !phoneNumber.isBlank() &&
-                email != null && !email.isBlank();
+    // --- LIFESTYLE & PREFERENCES ---
+    // Nullable Boolean allows for "Not Specified" which won't trigger negative scores
+
+    @Column(name = "is_smoker")
+    private Boolean isSmoker;
+
+    @Column(name = "has_pets")
+    private Boolean hasPets;
+
+    @Column(name = "min_rooms")
+    private Integer minRooms;
+
+    @Column(name = "wants_extra_bathroom")
+    private Boolean wantsExtraBathroom;
+
+    // The user selects ONE type that describes them (e.g., STUDENT)
+    @Enumerated(EnumType.STRING)
+    @Column(name = "tenant_type")
+    private PreferredTenantType tenantType;
+
+    public boolean getProfileComplete() {
+        return this.role != null
+                && this.phoneNumber != null && !this.phoneNumber.isBlank()
+                && this.firstName != null && !this.firstName.isBlank();
     }
 }

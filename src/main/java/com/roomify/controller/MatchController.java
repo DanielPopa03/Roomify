@@ -21,7 +21,7 @@ public class MatchController {
 
     // --- LANDLORD ---
 
-    @PostMapping("/landlord/invite")
+    @PostMapping("/landlord/invite") // Swipe Right
     public ResponseEntity<Match> landlordInvite(@AuthenticationPrincipal Jwt jwt, @RequestBody Map<String, Object> payload) {
         String tenantId = (String) payload.get("tenantId");
         Long propertyId = Long.valueOf(payload.get("propertyId").toString());
@@ -35,11 +35,9 @@ public class MatchController {
         return ResponseEntity.ok(matchService.passByLandlord(jwt.getSubject(), tenantId, propertyId));
     }
 
-    @PostMapping("/landlord/decline") // Explicit Decline in Pending list
+    @PostMapping("/landlord/decline") // Explicit Decline (e.g. from Pending list)
     public ResponseEntity<Match> landlordDecline(@AuthenticationPrincipal Jwt jwt, @RequestBody Map<String, Object> payload) {
-        String tenantId = (String) payload.get("tenantId");
-        Long propertyId = Long.valueOf(payload.get("propertyId").toString());
-        return ResponseEntity.ok(matchService.passByLandlord(jwt.getSubject(), tenantId, propertyId));
+        return landlordPass(jwt, payload);
     }
 
     // --- TENANT ---
@@ -49,12 +47,13 @@ public class MatchController {
         return ResponseEntity.ok(matchService.swipeByTenant(jwt.getSubject(), propertyId));
     }
 
-    @PostMapping("/tenant/pass/{propertyId}") // Swipe Left
+    @PostMapping("/tenant/pass/{propertyId}") // Swipe Left (Dislike)
     public ResponseEntity<Match> tenantPass(@AuthenticationPrincipal Jwt jwt, @PathVariable Long propertyId) {
         return ResponseEntity.ok(matchService.passByTenant(jwt.getSubject(), propertyId));
     }
 
     // --- GETTERS ---
+
     @GetMapping("/landlord/matches")
     public ResponseEntity<List<Match>> getConfirmedMatches(@AuthenticationPrincipal Jwt jwt) {
         return ResponseEntity.ok(matchService.getConfirmedMatches(jwt.getSubject()));

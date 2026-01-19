@@ -29,7 +29,7 @@ export default function AddPropertyScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const { user } = useAuth();
-    const { createProperty, isLoading, error } = usePropertyMutations();
+    const { createProperty, isLoading } = usePropertyMutations();
 
     const initialFormData = {
         title: '',
@@ -40,9 +40,9 @@ export default function AddPropertyScreen() {
         numberOfRooms: '',
         hasExtraBathroom: false,
         layoutType: '',
-        smokerFriendly: null as boolean | null,
-        petFriendly: null as boolean | null,
-        preferredTenants: [] as string[],
+        smokerFriendly: null as boolean | null, // Tri-state: true, false, or null (Any)
+        petFriendly: null as boolean | null,    // Tri-state: true, false, or null (Any)
+        preferredTenants: [] as string[],       // Multiple selection
         latitude: null as number | null,
         longitude: null as number | null
     };
@@ -66,6 +66,7 @@ export default function AddPropertyScreen() {
         }));
     };
 
+    // --- MODIFICATION: Multiple Selection Logic ---
     const toggleTenantType = (type: string) => {
         setFormData(prev => ({
             ...prev,
@@ -105,7 +106,6 @@ export default function AddPropertyScreen() {
         }
 
         try {
-            // 1. Define the data object FIRST
             const propertyData = {
                 title: formData.title,
                 price: parseFloat(formData.price),
@@ -115,24 +115,21 @@ export default function AddPropertyScreen() {
                 numberOfRooms: parseInt(formData.numberOfRooms),
                 hasExtraBathroom: formData.hasExtraBathroom,
                 layoutType: formData.layoutType || null,
+                // These can now be null ("Any")
                 smokerFriendly: formData.smokerFriendly,
                 petFriendly: formData.petFriendly,
+                // Array of strings for multiple selection
                 preferredTenants: formData.preferredTenants.length > 0 ? formData.preferredTenants : null,
                 latitude: formData.latitude,
                 longitude: formData.longitude
             };
 
-            // 2. Process the images
             const imageFiles = await Promise.all(images.map(async (img, index) => {
-                // Check if we are on Web (blob URIs)
                 if (img.uri.startsWith('blob:') || img.uri.startsWith('http')) {
                     const response = await fetch(img.uri);
                     const blob = await response.blob();
-                    // Create a real File object that Spring Boot understands
                     return new File([blob], `image_${index}.jpg`, { type: 'image/jpeg' });
                 }
-
-                // Standard Mobile (Android/iOS) handling
                 return {
                     uri: img.uri,
                     type: 'image/jpeg',
@@ -140,7 +137,6 @@ export default function AddPropertyScreen() {
                 } as any;
             }));
 
-            // 3. Now propertyData is defined, so this call will work
             const result = await createProperty(propertyData, imageFiles);
 
             if (result) {
@@ -161,7 +157,7 @@ export default function AddPropertyScreen() {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') return Alert.alert('Permission Required', 'Access needed.');
         const r = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ['images'],
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
             allowsMultipleSelection: true,
             quality: 0.8,
             selectionLimit: 7 - images.length
@@ -259,7 +255,8 @@ export default function AddPropertyScreen() {
                         ))}
                     </View>
 
-                    <Text style={styles.label}>Smoker Friendly</Text>
+                    {/* --- SMOKER FRIENDLY (YES / NO / ANY) --- */}
+                    <Text style={styles.label}>Smoker Friendly?</Text>
                     <View style={styles.optionsRow}>
                         <TouchableOpacity style={[styles.optionButton, formData.smokerFriendly === true && styles.optionButtonActive]} onPress={() => updateField('smokerFriendly', true)}>
                             <Text style={[styles.optionButtonText, formData.smokerFriendly === true && styles.optionButtonTextActive]}>Yes</Text>
@@ -267,9 +264,13 @@ export default function AddPropertyScreen() {
                         <TouchableOpacity style={[styles.optionButton, formData.smokerFriendly === false && styles.optionButtonActive]} onPress={() => updateField('smokerFriendly', false)}>
                             <Text style={[styles.optionButtonText, formData.smokerFriendly === false && styles.optionButtonTextActive]}>No</Text>
                         </TouchableOpacity>
+                        <TouchableOpacity style={[styles.optionButton, formData.smokerFriendly === null && styles.optionButtonActive]} onPress={() => updateField('smokerFriendly', null)}>
+                            <Text style={[styles.optionButtonText, formData.smokerFriendly === null && styles.optionButtonTextActive]}>Any</Text>
+                        </TouchableOpacity>
                     </View>
 
-                    <Text style={styles.label}>Pet Friendly</Text>
+                    {/* --- PET FRIENDLY (YES / NO / ANY) --- */}
+                    <Text style={styles.label}>Pet Friendly?</Text>
                     <View style={styles.optionsRow}>
                         <TouchableOpacity style={[styles.optionButton, formData.petFriendly === true && styles.optionButtonActive]} onPress={() => updateField('petFriendly', true)}>
                             <Text style={[styles.optionButtonText, formData.petFriendly === true && styles.optionButtonTextActive]}>Yes</Text>
@@ -277,13 +278,21 @@ export default function AddPropertyScreen() {
                         <TouchableOpacity style={[styles.optionButton, formData.petFriendly === false && styles.optionButtonActive]} onPress={() => updateField('petFriendly', false)}>
                             <Text style={[styles.optionButtonText, formData.petFriendly === false && styles.optionButtonTextActive]}>No</Text>
                         </TouchableOpacity>
+                        <TouchableOpacity style={[styles.optionButton, formData.petFriendly === null && styles.optionButtonActive]} onPress={() => updateField('petFriendly', null)}>
+                            <Text style={[styles.optionButtonText, formData.petFriendly === null && styles.optionButtonTextActive]}>Any</Text>
+                        </TouchableOpacity>
                     </View>
 
-                    <Text style={styles.label}>Preferred Tenants</Text>
+                    {/* --- MULTIPLE TENANT TYPES --- */}
+                    <Text style={styles.label}>Preferred Tenants (Select multiple)</Text>
                     <View style={styles.tenantTypes}>
                         {TENANT_TYPES.map(type => (
-                            <TouchableOpacity key={type} style={[styles.tenantTypeButton, formData.preferredTenants.includes(type) && styles.tenantTypeButtonActive]} onPress={() => toggleTenantType(type)}>
-                                <Text style={[styles.tenantTypeText, formData.preferredTenants.includes(type) && styles.tenantTypeTextActive]}>{type}</Text>
+                            <TouchableOpacity
+                                key={type}
+                                style={[styles.tenantChip, formData.preferredTenants.includes(type) && styles.activeTenantChip]}
+                                onPress={() => toggleTenantType(type)}
+                            >
+                                <Text style={[styles.tenantText, formData.preferredTenants.includes(type) && styles.activeTenantText]}>{type}</Text>
                             </TouchableOpacity>
                         ))}
                     </View>
@@ -327,19 +336,20 @@ export default function AddPropertyScreen() {
                             </View>
                         ))}
                         {images.length < 7 && (
-                            <TouchableOpacity style={styles.addImageButton} onPress={pickImages}>
-                                <Ionicons name="add" size={32} color={Blue[600]} />
-                                <Text style={styles.addImageText}>Add Photo</Text>
+                            <TouchableOpacity style={[styles.addImageButton, errors.images && styles.addImageButtonError]} onPress={pickImages}>
+                                <Ionicons name="add" size={32} color={errors.images ? ErrorColor : Blue[600]} />
+                                <Text style={[styles.addImageText, errors.images && { color: ErrorColor }]}>Add Photo</Text>
                             </TouchableOpacity>
                         )}
                     </View>
+                    {errors.images && <Text style={styles.errorText}>{errors.images}</Text>}
                 </Card>
 
                 <View style={styles.actions}>
                     <Button title={isLoading ? 'Creating...' : 'Create Property'} variant="primary" onPress={handleSubmit} disabled={isLoading} loading={isLoading} fullWidth />
                 </View>
             </ScrollView>
-            <Snackbar visible={snackbar.visible} message={snackbar.message} type={snackbar.type} onDismiss={() => setSnackbar(p => ({ ...p, visible: false }))} />
+            <Snackbar visible={snackbar.visible} message={snackbar.message} type={snackbar.type} onDismiss={() => setSnackbar(p => ({...p, visible: false}))} />
         </View>
     );
 }
@@ -364,10 +374,10 @@ const styles = StyleSheet.create({
     optionButtonText: { fontSize: Typography.size.sm, color: Neutral[700] },
     optionButtonTextActive: { color: '#FFFFFF', fontWeight: Typography.weight.semibold },
     tenantTypes: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs, marginTop: Spacing.xs },
-    tenantTypeButton: { paddingVertical: Spacing.xs, paddingHorizontal: Spacing.sm, borderWidth: 1, borderColor: Neutral[300], borderRadius: BorderRadius.full },
-    tenantTypeButtonActive: { backgroundColor: Blue[600], borderColor: Blue[600] },
-    tenantTypeText: { fontSize: Typography.size.sm, color: Neutral[700] },
-    tenantTypeTextActive: { color: '#FFFFFF' },
+    tenantChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: Neutral[300], backgroundColor: '#fff' },
+    activeTenantChip: { backgroundColor: Blue[50], borderColor: Blue[600] },
+    tenantText: { fontSize: 12, color: Neutral[700] },
+    activeTenantText: { color: Blue[700], fontWeight: '600' },
     previewSection: { marginBottom: Spacing.md },
     previewLabel: { fontSize: Typography.size.sm, fontWeight: Typography.weight.semibold, color: Neutral[700], marginBottom: Spacing.xs },
     editLabel: { fontSize: Typography.size.sm, fontWeight: Typography.weight.medium, color: Neutral[600], marginBottom: Spacing.xs },
@@ -380,6 +390,7 @@ const styles = StyleSheet.create({
     orderBadge: { position: 'absolute', top: 4, left: 4, backgroundColor: Blue[600], borderRadius: 12, width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
     orderText: { color: '#FFFFFF', fontSize: 10, fontWeight: 'bold' },
     addImageButton: { width: 100, height: 100, borderWidth: 2, borderColor: Blue[600], borderStyle: 'dashed', borderRadius: BorderRadius.md, alignItems: 'center', justifyContent: 'center' },
+    addImageButtonError: { borderColor: ErrorColor, backgroundColor: '#FEF2F2' },
     addImageText: { fontSize: Typography.size.sm, color: Blue[600], marginTop: Spacing.xs },
     actions: { padding: Spacing.base, paddingBottom: Spacing.xl },
 });
