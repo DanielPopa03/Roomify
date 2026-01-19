@@ -17,6 +17,15 @@ import { Header, UserCard, EmptyState } from '@/components/ui';
 import { Blue, Neutral, Typography, Spacing, BorderRadius } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 
+// --- HELPER: Fix Image URLs (Port 8081 -> 8080) ---
+const getImageUrl = (path: string | null | undefined) => {
+    if (!path) return null;
+    if (path.startsWith('http') || path.startsWith('data:')) return path;
+    const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
+    const BASE_URL = `http://${MY_IP}:8080`;
+    return path.startsWith('/') ? `${BASE_URL}${path}` : `${BASE_URL}/${path}`;
+};
+
 export default function LandlordInterestedScreen() {
     const router = useRouter();
     const params = useLocalSearchParams();
@@ -64,11 +73,11 @@ export default function LandlordInterestedScreen() {
         fetchMatches();
     };
 
-    // --- HANDLERS (Alerts Removed) ---
+    // --- HANDLERS ---
 
-    const handleAccept = async (tenantId: string, propertyId: number) => {
-        // Optimistic UI update: remove from list immediately
-        setMatches(prev => prev.filter(m => m.tenant.id !== tenantId));
+    const handleAccept = async (matchId: number, tenantId: string, propertyId: number) => {
+        // 1. Optimistic Update: Remove specific match by ID
+        setMatches(prev => prev.filter(m => m.id !== matchId));
 
         try {
             const token = await getAccessToken();
@@ -82,8 +91,7 @@ export default function LandlordInterestedScreen() {
             });
 
             if (!response.ok) {
-                // If failed, refresh to bring the user back
-                fetchMatches();
+                fetchMatches(); // Revert on failure
                 console.error('Failed to accept tenant');
             }
         } catch (error) {
@@ -92,9 +100,9 @@ export default function LandlordInterestedScreen() {
         }
     };
 
-    const handleDecline = async (tenantId: string, propertyId: number) => {
-        // Optimistic UI update: remove from list immediately
-        setMatches(prev => prev.filter(m => m.tenant.id !== tenantId));
+    const handleDecline = async (matchId: number, tenantId: string, propertyId: number) => {
+        // 1. Optimistic Update: Remove specific match by ID
+        setMatches(prev => prev.filter(m => m.id !== matchId));
 
         try {
             const token = await getAccessToken();
@@ -108,7 +116,7 @@ export default function LandlordInterestedScreen() {
             });
 
             if (!response.ok) {
-                fetchMatches();
+                fetchMatches(); // Revert on failure
                 console.error('Failed to decline tenant');
             }
         } catch (error) {
@@ -192,19 +200,30 @@ export default function LandlordInterestedScreen() {
                 <FlatList
                     data={filteredMatches}
                     keyExtractor={item => item.id.toString()}
-                    renderItem={({ item }) => (
-                        <UserCard
-                            name={item.tenant.firstName}
-                            avatar={item.tenant.picture}
-                            occupation={item.tenant.occupation || "Potential Tenant"}
-                            age={item.tenant.age}
-                            bio={item.tenant.bio}
-                            propertyTitle={item.property.title}
-                            onAccept={() => handleAccept(item.tenant.id, item.property.id)}
-                            onDecline={() => handleDecline(item.tenant.id, item.property.id)}
-                            onViewProfile={() => handleViewProfile(item.tenant.id)}
-                        />
-                    )}
+                    renderItem={({ item }) => {
+                        // 1. Get correct photo
+                        const mainPhotoRaw = item.tenant.photos && item.tenant.photos.length > 0
+                            ? item.tenant.photos[0]
+                            : item.tenant.picture;
+
+                        // 2. Fix URL
+                        const finalAvatar = getImageUrl(mainPhotoRaw);
+
+                        return (
+                            <UserCard
+                                name={item.tenant.firstName}
+                                avatar={finalAvatar} // Pass fixed URL
+                                occupation={item.tenant.occupation || "Potential Tenant"}
+                                age={item.tenant.age}
+                                bio={item.tenant.bio}
+                                propertyTitle={item.property.title}
+                                // Pass match ID to handlers
+                                onAccept={() => handleAccept(item.id, item.tenant.id, item.property.id)}
+                                onDecline={() => handleDecline(item.id, item.tenant.id, item.property.id)}
+                                onViewProfile={() => handleViewProfile(item.tenant.id)}
+                            />
+                        );
+                    }}
                     contentContainerStyle={styles.listContent}
                     showsVerticalScrollIndicator={false}
                     refreshControl={

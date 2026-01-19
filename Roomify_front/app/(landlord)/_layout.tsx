@@ -28,13 +28,31 @@ export default function LandlordLayout() {
                         },
                     }),
                     tabBarLabelStyle: {
-                        fontSize: 12,
+                        fontSize: 10,
                         fontWeight: '500',
+                        marginBottom: 4
                     },
                 }}>
 
+                {/* 1. Main Home: Tenant Review (Tinder Style) */}
+                {/* Uses the "two man icon" (people) as requested */}
                 <Tabs.Screen
                     name="index"
+                    options={{
+                        title: 'Review',
+                        tabBarIcon: ({ color, focused }) => (
+                            <Ionicons
+                                name={focused ? 'people' : 'people-outline'}
+                                size={24}
+                                color={color}
+                            />
+                        ),
+                    }}
+                />
+
+                {/* 2. Properties List */}
+                <Tabs.Screen
+                    name="properties"
                     options={{
                         title: 'Properties',
                         tabBarIcon: ({ color, focused }) => (
@@ -47,13 +65,15 @@ export default function LandlordLayout() {
                     }}
                 />
 
+                {/* 3. Interested Tab */}
+                {/* Uses the "current review icon" (checkbox) as requested */}
                 <Tabs.Screen
                     name="match"
                     options={{
                         title: 'Interested',
                         tabBarIcon: ({ color, focused }) => (
                             <Ionicons
-                                name={focused ? 'people' : 'people-outline'}
+                                name={focused ? 'checkbox' : 'checkbox-outline'}
                                 size={24}
                                 color={color}
                             />
@@ -61,7 +81,7 @@ export default function LandlordLayout() {
                     }}
                 />
 
-                {/* --- NEW CHAT TAB --- */}
+                {/* 4. Chat Tab */}
                 <Tabs.Screen
                     name="chat"
                     options={{
@@ -76,6 +96,7 @@ export default function LandlordLayout() {
                     }}
                 />
 
+                {/* 5. Profile Tab */}
                 <Tabs.Screen
                     name="profile"
                     options={{
@@ -91,8 +112,6 @@ export default function LandlordLayout() {
                 />
 
                 {/* --- HIDDEN SCREENS --- */}
-                {/* These are accessible via navigation but do not appear on the tab bar */}
-
                 <Tabs.Screen
                     name="add-property"
                     options={{
@@ -107,14 +126,11 @@ export default function LandlordLayout() {
                         title: 'Edit Property',
                     }}
                 />
-
-                {/* New Chat Room Screen */}
                 <Tabs.Screen
                     name="chat-room"
                     options={{
                         href: null,
                         title: 'Chat',
-                        // Hides the tab bar when inside a specific chat conversation
                         tabBarStyle: { display: 'none' }
                     }}
                 />

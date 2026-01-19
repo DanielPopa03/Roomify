@@ -34,6 +34,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Allow public access to property images (browsers don't send auth headers for <img> tags)
                         .requestMatchers("/api/properties/images/**").permitAll()
+                        .requestMatchers("/user/images/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                         .anyRequest().authenticated()

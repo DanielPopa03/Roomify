@@ -23,7 +23,6 @@ import { useRouter } from 'expo-router';
 import { SwipeButtons, EmptyState, ImageGalleryModal } from '@/components/ui';
 import { Blue, Neutral, Typography, Spacing, BorderRadius, Shadows } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
-// 1. Import from your shared types
 import { Property, MatchResponse } from '@/constants/types';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -37,7 +36,81 @@ const formatEnumString = (str: string) => {
     return str.toLowerCase().split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 };
 
-// --- 2. MEMOIZED CARD COMPONENT ---
+// --- HELPER: Fix Image URLs ---
+const getImageUrl = (path: string | null | undefined) => {
+    if (!path) return null;
+    if (path.startsWith('http') || path.startsWith('data:')) return path;
+    const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
+    const BASE_URL = `http://${MY_IP}:8080`;
+    return path.startsWith('/') ? `${BASE_URL}${path}` : `${BASE_URL}/${path}`;
+};
+
+// --- MATCH OVERLAY COMPONENT ---
+const MatchOverlay = ({ visible, userImage, propertyImage, propertyTitle, onClose, onChat }: any) => {
+    const scaleAnim = useRef(new Animated.Value(0)).current;
+    const slideLeft = useRef(new Animated.Value(-300)).current;
+    const slideRight = useRef(new Animated.Value(300)).current;
+    const fadeAnim = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+        if (visible) {
+            scaleAnim.setValue(0);
+            slideLeft.setValue(-300);
+            slideRight.setValue(300);
+            fadeAnim.setValue(0);
+
+            Animated.sequence([
+                Animated.spring(scaleAnim, { toValue: 1, friction: 4, useNativeDriver: true }),
+                Animated.parallel([
+                    Animated.spring(slideLeft, { toValue: 0, friction: 6, useNativeDriver: true }),
+                    Animated.spring(slideRight, { toValue: 0, friction: 6, useNativeDriver: true }),
+                ]),
+                Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true })
+            ]).start();
+        }
+    }, [visible]);
+
+    if (!visible) return null;
+
+    return (
+        <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
+            <View style={styles.modalOverlay}>
+                <View style={styles.modalBackground} />
+
+                <Animated.View style={{ transform: [{ scale: scaleAnim }, { rotate: '-5deg' }] }}>
+                    <Text style={styles.matchTitle}>It's a Match!</Text>
+                </Animated.View>
+
+                <Text style={styles.matchSubtitle}>The landlord of {propertyTitle} likes you too.</Text>
+
+                <View style={styles.avatarsRow}>
+                    <Animated.View style={{ transform: [{ translateX: slideLeft }] }}>
+                        <Image source={{ uri: userImage || 'https://via.placeholder.com/150' }} style={[styles.matchAvatar, styles.leftAvatar]} />
+                    </Animated.View>
+                    <Animated.View style={{ transform: [{ translateX: slideRight }] }}>
+                        <Image source={{ uri: propertyImage || 'https://via.placeholder.com/150' }} style={[styles.matchAvatar, styles.rightAvatar]} />
+                    </Animated.View>
+                    <View style={styles.heartCircle}>
+                        <Ionicons name="heart" size={32} color={Blue[600]} />
+                    </View>
+                </View>
+
+                <Animated.View style={[styles.matchButtons, { opacity: fadeAnim }]}>
+                    <TouchableOpacity style={styles.chatButton} onPress={onChat}>
+                        <Ionicons name="chatbubbles" size={20} color="#FFF" />
+                        <Text style={styles.chatButtonText}>Send a Message</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.keepSwipingButton} onPress={onClose}>
+                        <Text style={styles.keepSwipingText}>Keep Swiping</Text>
+                    </TouchableOpacity>
+                </Animated.View>
+            </View>
+        </Modal>
+    );
+};
+
+// --- PROPERTY CARD ---
 const PropertyCard = memo(({ property, isTopCard, onOpenGallery, onOpenMap }: { property: any, isTopCard: boolean, onOpenGallery: () => void, onOpenMap: () => void }) => {
     return (
         <View style={styles.cardInner}>
@@ -68,67 +141,42 @@ const PropertyCard = memo(({ property, isTopCard, onOpenGallery, onOpenMap }: { 
                             <Ionicons name="location" size={16} color={Neutral[500]} />
                             <Text style={styles.location} numberOfLines={1}>{property.address}</Text>
                         </View>
-                        <TouchableOpacity
-                            style={styles.mapPill}
-                            onPress={onOpenMap}
-                            disabled={!isTopCard}
-                        >
+                        <TouchableOpacity style={styles.mapPill} onPress={onOpenMap} disabled={!isTopCard}>
                             <Ionicons name="map-outline" size={14} color={Blue[600]} />
                             <Text style={styles.mapPillText}>See on Map</Text>
                         </TouchableOpacity>
                     </View>
 
                     <View style={styles.specsGrid}>
-                        <View style={styles.specItem}>
-                            <Ionicons name="grid-outline" size={18} color={Blue[600]} />
-                            <Text style={styles.specText}>{property.numberOfRooms} Rooms</Text>
-                        </View>
+                        <View style={styles.specItem}><Ionicons name="grid-outline" size={18} color={Blue[600]} /><Text style={styles.specText}>{property.numberOfRooms} Rooms</Text></View>
                         <View style={styles.verticalDivider} />
-                        <View style={styles.specItem}>
-                            <Ionicons name="water-outline" size={18} color={Blue[600]} />
-                            {/* Assuming logic for baths based on boolean */}
-                            <Text style={styles.specText}>{property.hasExtraBathroom ? 2 : 1} Bath</Text>
-                        </View>
+                        <View style={styles.specItem}><Ionicons name="water-outline" size={18} color={Blue[600]} /><Text style={styles.specText}>{property.hasExtraBathroom ? 2 : 1} Bath</Text></View>
                         <View style={styles.verticalDivider} />
-                        <View style={styles.specItem}>
-                            <Ionicons name="resize-outline" size={18} color={Blue[600]} />
-                            <Text style={styles.specText}>{property.surface} m²</Text>
-                        </View>
+                        <View style={styles.specItem}><Ionicons name="resize-outline" size={18} color={Blue[600]} /><Text style={styles.specText}>{property.surface} m²</Text></View>
                         {property.layoutType && (
                             <>
                                 <View style={styles.verticalDivider} />
-                                <View style={styles.specItem}>
-                                    <Ionicons name="home-outline" size={18} color={Blue[600]} />
-                                    <Text style={styles.specText} numberOfLines={1}>{formatEnumString(property.layoutType)}</Text>
-                                </View>
+                                <View style={styles.specItem}><Ionicons name="home-outline" size={18} color={Blue[600]} /><Text style={styles.specText} numberOfLines={1}>{formatEnumString(property.layoutType)}</Text></View>
                             </>
                         )}
                     </View>
 
                     <View style={styles.descriptionContainer}>
                         <Text style={styles.sectionTitle}>About this property</Text>
-                        <Text style={styles.description}>
-                            {property.description || "No description available."}
-                        </Text>
+                        <Text style={styles.description}>{property.description || "No description available."}</Text>
                     </View>
 
-                    {/* Render Tags */}
                     {property.preferredTenants && property.preferredTenants.length > 0 && (
                         <View style={styles.sectionRow}>
-                            <View style={styles.sectionIcon}>
-                                <Ionicons name="people" size={16} color={Neutral[500]} />
-                            </View>
+                            <View style={styles.sectionIcon}><Ionicons name="people" size={16} color={Neutral[500]} /></View>
                             <View style={styles.inlineTagsContainer}>
                                 <Text style={styles.sectionLabelInline}>Preferred:</Text>
                                 {property.preferredTenants.map((item: string, i: number) => (
-                                    <View key={i} style={styles.tenantTag}>
-                                        <Text style={styles.tenantTagText}>{formatEnumString(item)}</Text>
-                                    </View>
+                                    <View key={i} style={styles.tenantTag}><Text style={styles.tenantTagText}>{formatEnumString(item)}</Text></View>
                                 ))}
                             </View>
                         </View>
                     )}
-
                     <View style={{ height: 20 }} />
                 </ScrollView>
             </View>
@@ -136,7 +184,7 @@ const PropertyCard = memo(({ property, isTopCard, onOpenGallery, onOpenMap }: { 
     );
 });
 
-// --- 3. MAP MODAL ---
+// --- MAP MODAL ---
 const PropertyMapModal = ({ visible, onClose, latitude, longitude, address }: any) => {
     const insets = useSafeAreaInsets();
     if (!visible) return null;
@@ -147,9 +195,7 @@ const PropertyMapModal = ({ visible, onClose, latitude, longitude, address }: an
             <View style={{ flex: 1, backgroundColor: 'white' }}>
                 <View style={[styles.modalHeader, { paddingTop: Platform.OS === 'ios' ? 20 : 10 }]}>
                     <Text style={styles.modalTitle}>Location</Text>
-                    <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                        <Ionicons name="close" size={24} color={Neutral[900]} />
-                    </TouchableOpacity>
+                    <TouchableOpacity onPress={onClose} style={styles.closeButton}><Ionicons name="close" size={24} color={Neutral[900]} /></TouchableOpacity>
                 </View>
                 <View style={{ flex: 1 }}>
                     {Platform.OS === 'web' ? (
@@ -169,11 +215,9 @@ const PropertyMapModal = ({ visible, onClose, latitude, longitude, address }: an
 
 export default function TenantBrowseScreen() {
     const insets = useSafeAreaInsets();
-    // Destructure logout so we can sign user out on Provider Mismatch
-    const { getAccessToken, logout } = useAuth();
+    const { getAccessToken, logout, user } = useAuth();
     const router = useRouter();
 
-    // State
     const [properties, setProperties] = useState<Property[]>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
@@ -185,120 +229,99 @@ export default function TenantBrowseScreen() {
     const [position, setPosition] = useState(new Animated.ValueXY());
     const positionRef = useRef(position);
 
-    useEffect(() => {
-        positionRef.current = position;
-    }, [position]);
+    // --- MATCH STATE ---
+    const [matchModalVisible, setMatchModalVisible] = useState(false);
+    const [matchedProperty, setMatchedProperty] = useState<any>(null);
+    const [currentMatchId, setCurrentMatchId] = useState<number | null>(null);
+
+    useEffect(() => { positionRef.current = position; }, [position]);
 
     const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
 
-    // --- 4. FETCH FEED (Updated with 409 Handling) ---
     const fetchFeed = useCallback(async () => {
         setIsLoading(true);
         try {
             const token = await getAccessToken();
-            // Call the backend endpoint
             const response = await fetch(`http://${MY_IP}:8080/api/properties/feed`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
 
-            // --- 1. HANDLE PROVIDER MISMATCH (409 Conflict) ---
             if (response.status === 409) {
                 const errorText = await response.text();
-
-                Alert.alert(
-                    "Login Mismatch",
-                    errorText,
-                    [
-                        {
-                            text: "Log Out & Switch",
-                            onPress: async () => {
-                                // Clear token and go to login
-                                await logout();
-                                router.replace('/login');
-                            }
-                        }
-                    ]
-                );
+                Alert.alert("Login Mismatch", errorText, [{ text: "Log Out & Switch", onPress: async () => { await logout(); router.replace('/login'); } }]);
                 setIsLoading(false);
-                return; // STOP execution
+                return;
             }
-            // --------------------------------------------------
 
             if (response.ok) {
                 const data = await response.json();
-
-                // Map Backend Property to Frontend shape
                 const mapped = data.map((p: any) => ({
                     ...p,
                     images: p.images?.map((img: any) => {
                         const url = img.url;
-                        // Check if the URL is relative (doesn't start with http)
-                        if (!url.startsWith('http')) {
-                            // Prepend protocol, IP, and the correct backend port (8080)
-                            return `http://${MY_IP}:8080${url}`;
-                        }
-                        // If it is already absolute, just fix the localhost/127.0.0.1 IP
+                        if (!url.startsWith('http')) return `http://${MY_IP}:8080${url}`;
                         return url.replace('localhost', MY_IP).replace('127.0.0.1', MY_IP);
                     }) || []
                 }));
-
                 setProperties(mapped);
                 setCurrentIndex(0);
-            } else {
-                console.error("Feed fetch failed", response.status);
             }
-        } catch (error) {
-            console.error("Feed Error:", error);
-        } finally {
-            setIsLoading(false);
-        }
+        } catch (error) { console.error("Feed Error:", error); }
+        finally { setIsLoading(false); }
     }, [getAccessToken, MY_IP, logout, router]);
 
-    useEffect(() => {
-        fetchFeed();
-    }, [fetchFeed]);
+    useEffect(() => { fetchFeed(); }, [fetchFeed]);
 
-    // --- 5. SWIPE LOGIC ---
     const swipeCard = useCallback((direction: 'left' | 'right') => {
         const x = direction === 'right' ? SCREEN_WIDTH + 100 : -SCREEN_WIDTH - 100;
+        // 1. Capture the property BEFORE incrementing state
         const currentProp = properties[currentIndex];
 
-        // Animate using the Ref
         Animated.spring(positionRef.current, {
             toValue: { x, y: -50 },
             useNativeDriver: false,
-            speed: 100 // fast snap
+            speed: 100
         }).start(async () => {
-
-            // 1. Update State (Frontend Feed)
             setCurrentIndex(prev => prev + 1);
-            setPosition(new Animated.ValueXY()); // Replace value to stop flicker
+            setPosition(new Animated.ValueXY());
 
-            // 2. Call Backend if Swiped Right
-            if (direction === 'right' && currentProp) {
-                try {
-                    const token = await getAccessToken();
+            if (!currentProp) return;
+
+            try {
+                const token = await getAccessToken();
+                const headers = {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                };
+
+                if (direction === 'right') {
+                    // --- LIKE (Swipe Right) ---
                     const response = await fetch(`http://${MY_IP}:8080/api/matches/tenant/swipe/${currentProp.id}`, {
                         method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${token}`,
-                            'Content-Type': 'application/json'
-                        },
-                        // The backend gets the ID from the URL, so the body can be empty or omitted
+                        headers: headers,
                         body: JSON.stringify({})
                     });
 
                     if (response.ok) {
                         const matchData: MatchResponse = await response.json();
+                        // --- CHECK MATCH ---
                         if (matchData.status === 'MATCHED') {
-                            Alert.alert("🎉 IT'S A MATCH!", "The landlord has also liked you! You can now chat.");
+                            setMatchedProperty(currentProp);
+                            setCurrentMatchId(matchData.id);
+                            setMatchModalVisible(true);
                         }
                     }
-                } catch (error) {
-                    console.error("Swipe API Error", error);
+                } else {
+                    // --- PASS / DISLIKE (Swipe Left) ---
+                    // This calls the backend to update score negatively
+                    console.log("Passing property:", currentProp.id);
+                    await fetch(`http://${MY_IP}:8080/api/matches/tenant/pass/${currentProp.id}`, {
+                        method: 'POST',
+                        headers: headers,
+                        body: JSON.stringify({})
+                    });
                 }
-            }
-            // If Left swipe, we simply do nothing backend-side (Pass)
+            } catch (error) { console.error("Swipe API Error", error); }
         });
     }, [properties, currentIndex, getAccessToken, MY_IP]);
 
@@ -309,12 +332,8 @@ export default function TenantBrowseScreen() {
     const panResponder = useRef(
         PanResponder.create({
             onStartShouldSetPanResponder: () => true,
-            onMoveShouldSetPanResponder: (evt, gestureState) => {
-                return Math.abs(gestureState.dx) > 10;
-            },
-            onPanResponderMove: (_, gesture) => {
-                positionRef.current.setValue({ x: gesture.dx, y: gesture.dy });
-            },
+            onMoveShouldSetPanResponder: (evt, gestureState) => Math.abs(gestureState.dx) > 10,
+            onPanResponderMove: (_, gesture) => { positionRef.current.setValue({ x: gesture.dx, y: gesture.dy }); },
             onPanResponderRelease: (_, gesture) => {
                 if (gesture.dx > SWIPE_THRESHOLD) swipeCard('right');
                 else if (gesture.dx < -SWIPE_THRESHOLD) swipeCard('left');
@@ -329,7 +348,6 @@ export default function TenantBrowseScreen() {
     const currentProperty = properties[currentIndex];
     const nextProperty = properties[currentIndex + 1];
 
-    // Interpolations
     const rotate = position.x.interpolate({ inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2], outputRange: ['-12deg', '0deg', '12deg'], extrapolate: 'clamp' });
     const nextCardScale = position.x.interpolate({ inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2], outputRange: [1, 0.95, 1], extrapolate: 'clamp' });
     const likeOpacity = position.x.interpolate({ inputRange: [0, SCREEN_WIDTH/4], outputRange: [0, 1] });
@@ -337,9 +355,14 @@ export default function TenantBrowseScreen() {
 
     if (isLoading && properties.length === 0) return <ActivityIndicator style={styles.centered} size="large" color={Blue[500]} />;
 
-    if (!currentProperty) {
-        return (
-            <View style={[styles.container, { paddingTop: insets.top }]}>
+    // --- RENDER LOGIC FIXED ---
+    // Instead of early return, we render the Structure and conditionally show cards or EmptyState
+    // This ensures MatchOverlay is always mounted and can trigger even if the feed becomes empty.
+
+    return (
+        <View style={[styles.container, { paddingTop: insets.top }]}>
+            {!currentProperty ? (
+                // EMPTY STATE
                 <EmptyState
                     icon="home-outline"
                     title="No more properties"
@@ -347,70 +370,76 @@ export default function TenantBrowseScreen() {
                     actionLabel="Refresh"
                     onAction={() => { setProperties([]); fetchFeed(); }}
                 />
-            </View>
-        );
-    }
-
-    return (
-        <View style={[styles.container, { paddingTop: insets.top }]}>
-            <View style={styles.cardContainer}>
-
-                {/* BACKGROUND CARD */}
-                {nextProperty && (
-                    <Animated.View
-                        key={nextProperty.id}
-                        style={[styles.card, styles.nextCard, { transform: [{ scale: nextCardScale }], opacity: 1 }]}
-                    >
-                        <PropertyCard
-                            property={nextProperty}
-                            isTopCard={false}
-                            onOpenGallery={() => {}}
-                            onOpenMap={() => {}}
-                        />
-                    </Animated.View>
-                )}
-
-                {/* FOREGROUND CARD */}
-                <Animated.View
-                    key={currentProperty.id}
-                    style={[styles.card, { transform: [{ translateX: position.x }, { translateY: position.y }, { rotate }] }]}
-                    {...panResponder.panHandlers}
-                >
-                    <PropertyCard
-                        property={currentProperty}
-                        isTopCard={true}
-                        onOpenGallery={() => setIsGalleryVisible(true)}
-                        onOpenMap={() => setIsMapVisible(true)}
-                    />
-
-                    {/* Like/Nope Indicators */}
-                    <Animated.View style={[styles.indicator, styles.interestedIndicator, { opacity: likeOpacity }]}>
-                        <Ionicons name="checkmark-circle" size={64} color="#10B981" />
-                    </Animated.View>
-                    <Animated.View style={[styles.indicator, styles.notInterestedIndicator, { opacity: nopeOpacity }]}>
-                        <Ionicons name="close-circle" size={64} color="#EF4444" />
-                    </Animated.View>
-                </Animated.View>
-
-            </View>
-            <SwipeButtons onInterested={handleInterested} onNotInterested={handleNotInterested} />
-
-            {currentProperty && (
+            ) : (
+                // CARDS & BUTTONS
                 <>
-                    <ImageGalleryModal
-                        images={currentProperty.images}
-                        visible={isGalleryVisible}
-                        onClose={() => setIsGalleryVisible(false)}
-                    />
-                    <PropertyMapModal
-                        visible={isMapVisible}
-                        onClose={() => setIsMapVisible(false)}
-                        latitude={currentProperty.latitude}
-                        longitude={currentProperty.longitude}
-                        address={currentProperty.address}
-                    />
+                    <View style={styles.cardContainer}>
+                        {nextProperty && (
+                            <Animated.View key={nextProperty.id} style={[styles.card, styles.nextCard, { transform: [{ scale: nextCardScale }], opacity: 1 }]}>
+                                <PropertyCard property={nextProperty} isTopCard={false} onOpenGallery={() => {}} onOpenMap={() => {}} />
+                            </Animated.View>
+                        )}
+                        <Animated.View
+                            key={currentProperty.id}
+                            style={[styles.card, { transform: [{ translateX: position.x }, { translateY: position.y }, { rotate }] }]}
+                            {...panResponder.panHandlers}
+                        >
+                            <PropertyCard
+                                property={currentProperty}
+                                isTopCard={true}
+                                onOpenGallery={() => setIsGalleryVisible(true)}
+                                onOpenMap={() => setIsMapVisible(true)}
+                            />
+                            <Animated.View style={[styles.indicator, styles.interestedIndicator, { opacity: likeOpacity }]}>
+                                <Ionicons name="checkmark-circle" size={64} color="#10B981" />
+                            </Animated.View>
+                            <Animated.View style={[styles.indicator, styles.notInterestedIndicator, { opacity: nopeOpacity }]}>
+                                <Ionicons name="close-circle" size={64} color="#EF4444" />
+                            </Animated.View>
+                        </Animated.View>
+                    </View>
+                    <SwipeButtons onInterested={handleInterested} onNotInterested={handleNotInterested} />
                 </>
             )}
+
+            {/* MODALS - ALWAYS AVAILABLE */}
+            {/* Note: ImageGallery uses matchedProperty or currentProperty safely */}
+            <ImageGalleryModal
+                images={currentProperty?.images || matchedProperty?.images || []}
+                visible={isGalleryVisible}
+                onClose={() => setIsGalleryVisible(false)}
+            />
+
+            <PropertyMapModal
+                visible={isMapVisible}
+                onClose={() => setIsMapVisible(false)}
+                latitude={currentProperty?.latitude || 0}
+                longitude={currentProperty?.longitude || 0}
+                address={currentProperty?.address || ''}
+            />
+
+            {/* MATCH OVERLAY */}
+            <MatchOverlay
+                visible={matchModalVisible}
+                userImage={getImageUrl(user?.picture)}
+                propertyImage={matchedProperty?.images?.[0]}
+                propertyTitle={matchedProperty?.title}
+                onClose={() => setMatchModalVisible(false)}
+                onChat={() => {
+                    setMatchModalVisible(false);
+                    if (currentMatchId) {
+                        router.push({
+                            pathname: '/chat-room',
+                            params: {
+                                chatId: currentMatchId,
+                                title: matchedProperty?.title || 'Landlord'
+                            }
+                        });
+                    } else {
+                        router.push('/(tenant)/matches');
+                    }
+                }}
+            />
         </View>
     );
 }
@@ -470,4 +499,20 @@ const styles = StyleSheet.create({
     closeButton: { padding: 4 },
     modalFooter: { flexDirection: 'row', alignItems: 'center', padding: Spacing.md, backgroundColor: '#fff', gap: 8 },
     modalAddress: { fontSize: Typography.size.base, color: Neutral[800], flex: 1 },
+
+    // --- MATCH MODAL STYLES ---
+    modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    modalBackground: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.85)' },
+    matchTitle: { fontSize: 48, fontWeight: 'bold', color: '#4ADE80', marginBottom: 10, textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 10, fontFamily: 'System' },
+    matchSubtitle: { fontSize: 16, color: '#FFF', marginBottom: 40, opacity: 0.9 },
+    avatarsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 60, position: 'relative' },
+    matchAvatar: { width: 140, height: 140, borderRadius: 70, borderWidth: 4, borderColor: '#FFF' },
+    leftAvatar: { marginRight: -20 },
+    rightAvatar: { marginLeft: -20 },
+    heartCircle: { position: 'absolute', backgroundColor: '#FFF', width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', zIndex: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5 },
+    matchButtons: { width: '80%', gap: 16 },
+    chatButton: { backgroundColor: Blue[600], flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, borderRadius: 30, gap: 10 },
+    chatButtonText: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
+    keepSwipingButton: { backgroundColor: 'transparent', paddingVertical: 16, alignItems: 'center' },
+    keepSwipingText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
 });
