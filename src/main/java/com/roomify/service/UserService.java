@@ -156,13 +156,22 @@ public class UserService {
 
         return userRepository.findById(id)
                 .map(existingUser -> {
-                    if (payload.containsKey("name")) existingUser.setFirstName((String) payload.get("name"));
-                    if (payload.containsKey("bio")) existingUser.setBio((String) payload.get("bio"));
-                    if (payload.containsKey("phoneNumber")) existingUser.setPhoneNumber(phoneInput);
-                    if (payload.containsKey("email")) existingUser.setEmail(emailInput);
+                    if (payload.containsKey("name"))
+                        existingUser.setFirstName((String) payload.get("name"));
+                    if (payload.containsKey("bio"))
+                        existingUser.setBio((String) payload.get("bio"));
+                    if (payload.containsKey("phoneNumber"))
+                        existingUser.setPhoneNumber(phoneInput);
+                    if (payload.containsKey("email"))
+                        existingUser.setEmail(emailInput);
 
                     if (payload.containsKey("role")) {
                         roleRepository.findByName(((String) payload.get("role")).toUpperCase()).ifPresent(existingUser::setRole);
+                    }
+
+                    // Handle isVideoPublic field explicitly for privacy toggle
+                    if (payload.containsKey("isVideoPublic")) {
+                        existingUser.setIsVideoPublic((Boolean) payload.get("isVideoPublic"));
                     }
 
                     if (payload.containsKey("isSmoker")) existingUser.setIsSmoker((Boolean) payload.get("isSmoker"));
@@ -269,5 +278,14 @@ public class UserService {
     public boolean isEmailTaken(String email, String currentUserId) {
         if (email.endsWith("@no-email.roomify.com")) return false;
         return userRepository.existsByEmailFlexible(email.trim(), currentUserId);
+    }
+
+    /**
+     * Saves or updates a user entity.
+     * Used by interview confirmation to persist profile changes.
+     */
+    @Transactional
+    public User saveUser(User user) {
+        return userRepository.save(user);
     }
 }

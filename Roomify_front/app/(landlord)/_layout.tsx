@@ -55,6 +55,7 @@ export default function LandlordLayout() {
                     name="properties"
                     options={{
                         title: 'Properties',
+                        href: '/(landlord)',
                         tabBarIcon: ({ color, focused }) => (
                             <Ionicons
                                 name={focused ? 'home' : 'home-outline'}
@@ -71,6 +72,7 @@ export default function LandlordLayout() {
                     name="match"
                     options={{
                         title: 'Interested',
+                        href: '/(landlord)/match',
                         tabBarIcon: ({ color, focused }) => (
                             <Ionicons
                                 name={focused ? 'checkbox' : 'checkbox-outline'}
@@ -86,6 +88,7 @@ export default function LandlordLayout() {
                     name="chat"
                     options={{
                         title: 'Messages',
+                        href: '/(landlord)/chat',
                         tabBarIcon: ({ color, focused }) => (
                             <Ionicons
                                 name={focused ? 'chatbubbles' : 'chatbubbles-outline'}
@@ -101,6 +104,7 @@ export default function LandlordLayout() {
                     name="profile"
                     options={{
                         title: 'Profile',
+                        href: '/(landlord)/profile',
                         tabBarIcon: ({ color, focused }) => (
                             <Ionicons
                                 name={focused ? 'person' : 'person-outline'}
@@ -112,25 +116,39 @@ export default function LandlordLayout() {
                 />
 
                 {/* --- HIDDEN SCREENS --- */}
+                {/* These are accessible via navigation but do not appear on the tab bar */}
+
+                {/* Tenant Profile Screen - MUST be declared to prevent auto-tab creation */}
+                <Tabs.Screen
+                    name="tenant-profile/[id]"
+                    options={{
+                        href: null,
+                        headerShown: false,
+                        tabBarStyle: { display: 'none' }
+                    }}
+                />
+
                 <Tabs.Screen
                     name="add-property"
                     options={{
                         href: null,
-                        title: 'Add Property',
+                        headerShown: false,
                     }}
                 />
                 <Tabs.Screen
                     name="edit-property"
                     options={{
                         href: null,
-                        title: 'Edit Property',
+                        headerShown: false,
                     }}
                 />
+
+                {/* Chat Room Screen - hidden from tabs */}
                 <Tabs.Screen
                     name="chat-room"
                     options={{
                         href: null,
-                        title: 'Chat',
+                        headerShown: false,
                         tabBarStyle: { display: 'none' }
                     }}
                 />

@@ -36,6 +36,7 @@ export default function LandlordChatListScreen() {
                 setConversations([
                     {
                         id: '1',
+                        tenantId: 'tenant-user-1',
                         tenantName: 'Sarah Jenkins',
                         tenantAvatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330',
                         lastMessage: 'Is the apartment still available?',
@@ -45,6 +46,7 @@ export default function LandlordChatListScreen() {
                     },
                     {
                         id: '2',
+                        tenantId: 'tenant-user-2',
                         tenantName: 'Michael Chen',
                         tenantAvatar: null,
                         lastMessage: 'Thanks for the tour yesterday!',
@@ -66,17 +68,17 @@ export default function LandlordChatListScreen() {
         fetchConversations();
     }, [fetchConversations]);
 
-    const handleChatPress = (chatId: string, tenantName: string) => {
+    const handleChatPress = (chatId: string, tenantName: string, tenantId?: string) => {
         router.push({
             pathname: '/(landlord)/chat-room',
-            params: { chatId, title: tenantName }
+            params: { chatId, title: tenantName, otherUserId: tenantId || '' }
         });
     };
 
     const renderItem = ({ item }: { item: any }) => (
         <TouchableOpacity
             style={styles.chatItem}
-            onPress={() => handleChatPress(item.id, item.tenantName)}
+            onPress={() => handleChatPress(item.id, item.tenantName, item.tenantId)}
         >
             <View style={styles.avatarContainer}>
                 {item.tenantAvatar ? (

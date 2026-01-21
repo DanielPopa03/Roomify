@@ -39,6 +39,7 @@ public class ChatService {
 
             // Tenant Details
             User tenant = match.getTenant();
+            dto.put("tenantId", tenant.getId()); // Add tenantId for frontend navigation
             dto.put("tenantName", tenant.getFirstName());
             dto.put("tenantAvatar", null); // Add logic here if you have profile pictures
             dto.put("propertyTitle", match.getProperty().getTitle());

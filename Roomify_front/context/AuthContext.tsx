@@ -12,6 +12,14 @@ export interface BackendUser {
     bio?: string;
     role: { name: string };
     profileComplete: boolean;
+    // Video Interview / Express Profile fields
+    isVerified?: boolean;
+    isVideoPublic?: boolean;
+    videoUrl?: string;
+    videoTranscript?: string;
+    jobTitle?: string;
+    smokerFriendly?: boolean;
+    petFriendly?: boolean;
 }
 
 export interface AuthUser {

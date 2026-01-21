@@ -5,6 +5,7 @@ import com.roomify.model.*;
 import com.roomify.model.enums.LayoutType;
 import com.roomify.model.enums.MatchStatus;
 import com.roomify.model.enums.PreferredTenantType;
+import com.roomify.repository.ChatMessageRepository;
 import com.roomify.repository.MatchRepository;
 import com.roomify.repository.PropertyRepository;
 import com.roomify.repository.UserRepository;
@@ -27,6 +28,7 @@ public class PropertyService {
 
     private final PropertyRepository propertyRepository;
     private final MatchRepository matchRepository;
+    private final ChatMessageRepository chatMessageRepository;
     private final UserRepository userRepository;
     private final GeocodingService geocodingService;
     private final Path rootLocation = Paths.get("uploads");
@@ -34,10 +36,12 @@ public class PropertyService {
 
     public PropertyService(PropertyRepository propertyRepository,
                            MatchRepository matchRepository,
+                           ChatMessageRepository chatMessageRepository,
                            UserRepository userRepository,
                            GeocodingService geocodingService) {
         this.propertyRepository = propertyRepository;
         this.matchRepository = matchRepository;
+        this.chatMessageRepository = chatMessageRepository;
         this.userRepository = userRepository;
         this.geocodingService = geocodingService;
         initStorage();
@@ -51,6 +55,13 @@ public class PropertyService {
     public void deleteAllByLandlord(String landlordId) {
         List<Property> properties = propertyRepository.findByOwner_Id(landlordId, Pageable.unpaged()).getContent();
         for (Property property : properties) {
+            List<Match> matches = matchRepository.findAll().stream()
+                    .filter(m -> m.getProperty().getId().equals(property.getId()))
+                    .collect(Collectors.toList());
+            
+            for (Match match : matches) {
+                chatMessageRepository.deleteAll(chatMessageRepository.findByMatchIdOrderByCreatedAtAsc(match.getId()));
+            }
             matchRepository.deleteByPropertyId(property.getId());
             if (property.getImages() != null) {
                 for (PropertyImage img : property.getImages()) {
@@ -224,6 +235,16 @@ public class PropertyService {
         Property property = propertyRepository.findById(id).orElseThrow(() -> new RuntimeException("Property not found"));
         if (!property.getOwner().getId().equals(userId)) throw new RuntimeException("Unauthorized");
 
+        // Delete chat messages for all matches related to this property
+        List<Match> matches = matchRepository.findAll().stream()
+                .filter(m -> m.getProperty().getId().equals(property.getId()))
+                .collect(Collectors.toList());
+        
+        for (Match match : matches) {
+            chatMessageRepository.deleteAll(chatMessageRepository.findByMatchIdOrderByCreatedAtAsc(match.getId()));
+        }
+
+        // Delete associated matches
         matchRepository.deleteByPropertyId(property.getId());
         if (property.getImages() != null) {
             for (PropertyImage img : property.getImages()) deleteFileFromDisk(img.getUrl());

@@ -638,6 +638,76 @@ export function useAdminMutations() {
   return { updateUserRole, isLoading, error };
 }
 
+// ============================================
+// INTERVIEW HOOKS (Video Interview Feature)
+// ============================================
+
+export function useInterview() {
+  const { getAccessToken } = useAuth();
+  const [isLoading, setIsLoading] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const analyzeVideo = useCallback(async (videoUri: string) => {
+    setIsAnalyzing(true);
+    setError(null);
+
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        setError('Not authenticated');
+        return null;
+      }
+
+      const response = await Api.Interview.analyzeVideo(token, videoUri);
+      if (response.error) {
+        setError(response.error);
+        return null;
+      }
+      return response.data;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to analyze video');
+      return null;
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [getAccessToken]);
+
+  const confirmProfile = useCallback(async (data: {
+    bio: string;
+    jobTitle: string;
+    smokerFriendly: boolean;
+    petFriendly: boolean;
+    videoFilename: string;
+    isVideoPublic: boolean;
+  }) => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        setError('Not authenticated');
+        return null;
+      }
+
+      const response = await Api.Interview.confirmProfile(token, data);
+      if (response.error) {
+        setError(response.error);
+        return null;
+      }
+      return response.data;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to confirm profile');
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [getAccessToken]);
+
+  return { analyzeVideo, confirmProfile, isLoading, isAnalyzing, error };
+}
+
 // Export all hooks
 export default {
   useCurrentUser,
@@ -655,4 +725,5 @@ export default {
   useAdminUsers,
   useAdminReports,
   useAdminMutations,
+  useInterview,
 };
