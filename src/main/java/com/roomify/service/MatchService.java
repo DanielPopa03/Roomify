@@ -20,85 +20,123 @@ public class MatchService {
     private final PropertyRepository propertyRepository;
     private final UserRepository userRepository;
 
+    // SCORING WEIGHTS
+    private static final double LIKE_SCORE = 10.0;
+
+    // UPDATED: Changed from -50.0 to -20.0
+    // This allows a property to survive a dislike if it has enough positive attribute points.
+    // It will be pushed to the bottom of the feed rather than hidden immediately.
+    private static final double PASS_SCORE = -20.0;
+
     public MatchService(MatchRepository matchRepository, PropertyRepository propertyRepository, UserRepository userRepository) {
         this.matchRepository = matchRepository;
         this.propertyRepository = propertyRepository;
         this.userRepository = userRepository;
     }
 
+    // --- TENANT ACTIONS ---
+
     /**
-     * Case 1: Tenant swipes right on a Property
+     * Tenant Swipes RIGHT (Like) -> Score +10
      */
     @Transactional
     public Match swipeByTenant(String tenantId, Long propertyId) {
-        User tenant = userRepository.findById(tenantId)
-                .orElseThrow(() -> new RuntimeException("Tenant not found"));
+        return handleInteraction(tenantId, propertyId, true, true);
+    }
 
-        Property property = propertyRepository.findById(propertyId)
-                .orElseThrow(() -> new RuntimeException("Property not found"));
+    /**
+     * Tenant Swipes LEFT (Pass) -> Score -20
+     */
+    @Transactional
+    public Match passByTenant(String tenantId, Long propertyId) {
+        return handleInteraction(tenantId, propertyId, true, false);
+    }
 
-        // FIX: Fetch landlord using the ownerId string stored in property
-        User landlord = userRepository.findById(property.getOwner().getId())
-                .orElseThrow(() -> new RuntimeException("Landlord not found"));
+    // --- LANDLORD ACTIONS ---
 
-        // 1. Role Validation
-        if (tenant.getId().equals(landlord.getId())) {
-            throw new RuntimeException("You cannot swipe on your own property.");
-        }
+    /**
+     * Landlord Swipes RIGHT (Invite) -> Score +10
+     */
+    @Transactional
+    public Match inviteTenant(String landlordId, String tenantId, Long propertyId) {
+        Property property = propertyRepository.findById(propertyId).orElseThrow(() -> new RuntimeException("Property not found"));
+        if (!property.getOwner().getId().equals(landlordId)) throw new RuntimeException("Unauthorized: Not your property");
+
+        return handleInteraction(tenantId, propertyId, false, true);
+    }
+
+    /**
+     * Landlord Swipes LEFT (Pass/Decline) -> Score -20
+     */
+    @Transactional
+    public Match passByLandlord(String landlordId, String tenantId, Long propertyId) {
+        Property property = propertyRepository.findById(propertyId).orElseThrow(() -> new RuntimeException("Property not found"));
+        if (!property.getOwner().getId().equals(landlordId)) throw new RuntimeException("Unauthorized: Not your property");
+
+        return handleInteraction(tenantId, propertyId, false, false);
+    }
+
+    // --- CORE LOGIC ---
+
+    private Match handleInteraction(String tenantId, Long propertyId, boolean isTenantAction, boolean isLike) {
+        User tenant = userRepository.findById(tenantId).orElseThrow(() -> new RuntimeException("Tenant not found"));
+        Property property = propertyRepository.findById(propertyId).orElseThrow(() -> new RuntimeException("Property not found"));
+        User landlord = property.getOwner();
+
+        if (tenant.getId().equals(landlord.getId())) throw new RuntimeException("Self-interaction invalid");
 
         Optional<Match> existing = matchRepository.findByTenantAndProperty(tenant, property);
+        Match match = existing.orElse(Match.builder()
+                .tenant(tenant)
+                .landlord(landlord)
+                .property(property)
+                .status(MatchStatus.TENANT_DECLINED) // Default status placeholder
+                .score(0.0)
+                .build());
 
-        if (existing.isPresent()) {
-            Match match = existing.get();
-            // If Landlord already liked it -> UPGRADE TO MATCH
-            if (match.getStatus() == MatchStatus.LANDLORD_LIKED) {
-                match.setStatus(MatchStatus.MATCHED);
-                return matchRepository.save(match);
-            }
-            return match; // Already TENANT_LIKED or MATCHED
-        } else {
-            // New Interaction
-            Match newMatch = Match.builder()
-                    .tenant(tenant)
-                    .landlord(landlord)
-                    .property(property)
-                    .status(MatchStatus.TENANT_LIKED)
-                    .build();
-            return matchRepository.save(newMatch);
-        }
-    }
+        // 1. Update Score (Accumulate history)
+        // Disliking decreases score (-20). Liking increases it (+10).
+        // A property disliked multiple times will eventually drop below visibility threshold.
+        double change = isLike ? LIKE_SCORE : PASS_SCORE;
+        match.setScore(match.getScore() + change);
 
-    public List<Match> getPendingLikesForLandlord(String landlordId) {
-        // Returns matches where Tenant Liked, but Landlord hasn't swiped yet
-        return matchRepository.findByLandlord_IdAndStatus(landlordId, MatchStatus.TENANT_LIKED);
-    }
-
-    @Transactional
-    public Match respondByLandlord(String landlordId, String tenantId, Long propertyId, boolean accepted) {
-        // 1. Find the existing interaction
-        Match match = matchRepository.findByTenantAndProperty(
-                userRepository.getReferenceById(tenantId),
-                propertyRepository.getReferenceById(propertyId)
-        ).orElseThrow(() -> new RuntimeException("Interaction not found"));
-
-        // 2. Ownership Validation
-        if (!match.getLandlord().getId().equals(landlordId)) {
-            throw new RuntimeException("Unauthorized: You do not own this property");
-        }
-
-        // 3. Status Logic
-        if (accepted) {
-            // Double Opt-in: Only upgrade to MATCHED if the tenant already liked it
-            if (match.getStatus() == MatchStatus.TENANT_LIKED) {
-                match.setStatus(MatchStatus.MATCHED);
+        // 2. Update Status Logic
+        if (isTenantAction) {
+            if (isLike) {
+                // If Landlord already liked, it's a MATCH
+                if (match.getStatus() == MatchStatus.LANDLORD_LIKED) {
+                    match.setStatus(MatchStatus.MATCHED);
+                } else {
+                    match.setStatus(MatchStatus.TENANT_LIKED);
+                }
             } else {
-                match.setStatus(MatchStatus.LANDLORD_LIKED);
+                // Tenant passed
+                match.setStatus(MatchStatus.TENANT_DECLINED);
             }
-        } else {
-            // Mark as declined so it is filtered out of both feeds
-            match.setStatus(MatchStatus.LANDLORD_DECLINED);
+        } else { // Landlord Action
+            if (isLike) {
+                // If Tenant already liked, it's a MATCH
+                if (match.getStatus() == MatchStatus.TENANT_LIKED) {
+                    match.setStatus(MatchStatus.MATCHED);
+                } else {
+                    match.setStatus(MatchStatus.LANDLORD_LIKED);
+                }
+            } else {
+                // Landlord passed
+                match.setStatus(MatchStatus.LANDLORD_DECLINED);
+            }
         }
 
         return matchRepository.save(match);
+    }
+
+    // --- GETTERS ---
+
+    public List<Match> getPendingLikesForLandlord(String landlordId) {
+        return matchRepository.findByLandlord_IdAndStatus(landlordId, MatchStatus.TENANT_LIKED);
+    }
+
+    public List<Match> getConfirmedMatches(String landlordId) {
+        return matchRepository.findByLandlord_IdAndStatus(landlordId, MatchStatus.MATCHED);
     }
 }

@@ -2,12 +2,28 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
 import React, { useState, useEffect, useCallback } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as ImagePicker from 'expo-image-picker';
 
-import { Avatar, Button, Card, Input } from '@/components/ui';
+import { Avatar, Button, Card, Input, ImageGalleryModal } from '@/components/ui';
 import { Blue, BorderRadius, Neutral, Spacing, Typography, Shadows } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+
+// --- HELPER: Fix Image URLs (Port 8081 -> 8080) ---
+const getImageUrl = (path: string | null | undefined) => {
+    if (!path) return null;
+
+    // 1. If it's already a full URL (Auth0 or Base64), use it as is
+    if (path.startsWith('http') || path.startsWith('data:')) return path;
+
+    // 2. Otherwise, it's a relative path from the DB
+    const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
+    const BASE_URL = `http://${MY_IP}:8080`;
+
+    // Ensure we don't double-slash
+    return path.startsWith('/') ? `${BASE_URL}${path}` : `${BASE_URL}/${path}`;
+};
 
 export default function LandlordProfileScreen() {
     const router = useRouter();
@@ -19,12 +35,17 @@ export default function LandlordProfileScreen() {
     const [phone, setPhone] = useState('');
     const [email, setEmail] = useState('');
     const [bio, setBio] = useState('');
+    const [photos, setPhotos] = useState<string[]>([]); // Photos List
+
+    // Gallery Modal State
+    const [isGalleryVisible, setIsGalleryVisible] = useState(false);
 
     const [originalData, setOriginalData] = useState({
         name: '',
         phone: '',
         email: '',
-        bio: ''
+        bio: '',
+        photos: [] as string[]
     });
 
     const [phoneError, setPhoneError] = useState<string | null>(null);
@@ -32,7 +53,7 @@ export default function LandlordProfileScreen() {
     const [isEditing, setIsEditing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
-    // Mock or DB Stats
+    // Stats
     const [stats, setStats] = useState({
         totalProperties: 0,
         activeListings: 0,
@@ -40,7 +61,6 @@ export default function LandlordProfileScreen() {
     });
 
     const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
-
     const PHONE_VALIDATION_REGEX = /^[+]?[0-9\s\-\(\)]{7,20}$/;
     const ALLOWED_PHONE_CHARS = /[0-9\s\+\-\(\)]/g;
     const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -58,15 +78,27 @@ export default function LandlordProfileScreen() {
                 name: dbUser.firstName || user?.name || '',
                 phone: dbUser.phoneNumber || '',
                 email: dbUser.email || user?.email || '',
-                bio: dbUser.bio || ''
+                bio: dbUser.bio || '',
+                photos: [] as string[]
             };
+
+            // Load Photos Logic
+            if (dbUser.photos && dbUser.photos.length > 0) {
+                data.photos = dbUser.photos;
+            } else if (dbUser.picture) {
+                data.photos = [dbUser.picture];
+            } else if (user?.picture) {
+                data.photos = [user.picture];
+            }
+
             setFullName(data.name);
             setPhone(data.phone);
             setEmail(data.email);
             setBio(data.bio);
+            setPhotos(data.photos);
             setOriginalData(data);
 
-            // If stats are in dbUser, update them here
+            // Update stats
             setStats({
                 totalProperties: dbUser.stats?.totalProperties || 0,
                 activeListings: dbUser.stats?.activeProperties || 0,
@@ -76,6 +108,40 @@ export default function LandlordProfileScreen() {
     }, [dbUser, isEditing]);
 
     // --- HANDLERS ---
+
+    const pickImage = async () => {
+        // --- LIMIT CHECK: Max 7 photos ---
+        if (photos.length >= 7) {
+            Alert.alert("Limit Reached", "You can upload a maximum of 7 photos.");
+            return;
+        }
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images, // Use Options to avoid crash
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.5,
+            base64: true,
+        });
+
+        if (!result.canceled && result.assets[0].base64) {
+            const newImage = `data:image/jpeg;base64,${result.assets[0].base64}`;
+            setPhotos(prev => [...prev, newImage]);
+        }
+    };
+
+    const removePhoto = (index: number) => {
+        setPhotos(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const makeMain = (index: number) => {
+        if (index === 0) return;
+        const newPhotos = [...photos];
+        const [selected] = newPhotos.splice(index, 1);
+        newPhotos.unshift(selected);
+        setPhotos(newPhotos);
+    };
+
     const handlePhoneChange = (text: string) => {
         const filteredText = text.match(ALLOWED_PHONE_CHARS)?.join('') || '';
         setPhone(filteredText);
@@ -94,6 +160,7 @@ export default function LandlordProfileScreen() {
         setPhone(originalData.phone);
         setEmail(originalData.email);
         setBio(originalData.bio);
+        setPhotos(originalData.photos);
         setPhoneError(null);
         setEmailError(null);
         setIsEditing(false);
@@ -117,6 +184,7 @@ export default function LandlordProfileScreen() {
                     phoneNumber: phone,
                     email: email,
                     bio: bio,
+                    photos: photos, // Send photos
                     role: 'LANDLORD'
                 })
             });
@@ -166,6 +234,12 @@ export default function LandlordProfileScreen() {
         );
     }
 
+    // FIX: Apply getImageUrl to the main photo so it resolves to port 8080
+    const mainPhoto = photos.length > 0 ? getImageUrl(photos[0]) : null;
+
+    // Prepare images for the gallery modal
+    const galleryImages = photos.map(p => getImageUrl(p)).filter(p => p !== null) as string[];
+
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
             <View style={styles.header}>
@@ -183,12 +257,15 @@ export default function LandlordProfileScreen() {
                     <LinearGradient colors={[Blue[600], Blue[800]]} style={styles.gradientBackground} />
                     <View style={styles.avatarSection}>
                         <View style={styles.avatarWrapper}>
-                            <Avatar uri={user?.picture} name={fullName || 'Landlord'} size={90} />
-                            {isEditing && (
-                                <TouchableOpacity style={styles.editAvatarButton}>
-                                    <Ionicons name="camera" size={16} color="#FFFFFF" />
-                                </TouchableOpacity>
-                            )}
+                            {/* Tap Avatar: Edit Mode -> Pick Image, View Mode -> Open Gallery */}
+                            <TouchableOpacity onPress={isEditing ? pickImage : () => setIsGalleryVisible(true)}>
+                                <Avatar uri={mainPhoto} name={fullName || 'Landlord'} size={90} />
+                                {isEditing && (
+                                    <View style={styles.editAvatarButton}>
+                                        <Ionicons name="camera" size={16} color="#FFFFFF" />
+                                    </View>
+                                )}
+                            </TouchableOpacity>
                         </View>
                         <Text style={styles.userName}>{isEditing ? fullName : originalData.name}</Text>
                         <Text style={styles.userRole}>Verified Landlord</Text>
@@ -211,6 +288,44 @@ export default function LandlordProfileScreen() {
                         </View>
                     </View>
                 </View>
+
+                {/* --- FIX: Gallery Section Always Visible --- */}
+                {photos.length > 0 && (
+                    <View style={styles.gallerySection}>
+                        <Text style={styles.sectionTitle}>
+                            {isEditing ? "Manage Photos (Tap to set Main)" : "My Photos"}
+                        </Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoList}>
+                            {isEditing && (
+                                <TouchableOpacity style={styles.addPhotoButton} onPress={pickImage}>
+                                    <Ionicons name="add" size={30} color={Blue[600]} />
+                                </TouchableOpacity>
+                            )}
+                            {photos.map((photo, index) => (
+                                <TouchableOpacity
+                                    key={index}
+                                    style={[styles.photoThumbWrapper, index === 0 && styles.mainPhotoBorder]}
+                                    // Tap: Edit -> Make Main; View -> Open Gallery
+                                    onPress={() => isEditing ? makeMain(index) : setIsGalleryVisible(true)}
+                                >
+                                    {/* FIX: Apply getImageUrl to gallery thumbs */}
+                                    <Image source={{ uri: getImageUrl(photo) }} style={styles.photoThumb} />
+
+                                    {isEditing && (
+                                        <TouchableOpacity style={styles.deletePhotoBtn} onPress={() => removePhoto(index)}>
+                                            <Ionicons name="close" size={12} color="#FFF" />
+                                        </TouchableOpacity>
+                                    )}
+                                    {index === 0 && (
+                                        <View style={styles.mainLabel}>
+                                            <Text style={styles.mainLabelText}>MAIN</Text>
+                                        </View>
+                                    )}
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
+                    </View>
+                )}
 
                 <Text style={styles.sectionTitle}>Account Details</Text>
                 <Card shadow="sm" style={styles.infoCard}>
@@ -286,6 +401,13 @@ export default function LandlordProfileScreen() {
 
                 <Text style={styles.version}>Roomify Landlord v1.0.0</Text>
             </ScrollView>
+
+            {/* FULL SCREEN GALLERY MODAL */}
+            <ImageGalleryModal
+                visible={isGalleryVisible}
+                images={galleryImages}
+                onClose={() => setIsGalleryVisible(false)}
+            />
         </View>
     );
 }
@@ -313,6 +435,18 @@ const styles = StyleSheet.create({
     statDivider: { width: 1, height: 30, backgroundColor: Neutral[200] },
     infoCard: { padding: Spacing.lg, marginHorizontal: Spacing.base, marginBottom: Spacing.lg },
     sectionTitle: { fontSize: Typography.size.sm, fontWeight: Typography.weight.semibold, color: Neutral[500], textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: Spacing.sm, marginLeft: Spacing.lg },
+
+    // Gallery Styles
+    gallerySection: { paddingHorizontal: Spacing.base, marginBottom: Spacing.lg },
+    photoList: { flexDirection: 'row' },
+    addPhotoButton: { width: 70, height: 70, borderRadius: 12, backgroundColor: Blue[50], justifyContent: 'center', alignItems: 'center', marginRight: 10, borderWidth: 1, borderColor: Blue[200], borderStyle: 'dashed' },
+    photoThumbWrapper: { width: 70, height: 70, borderRadius: 12, marginRight: 10, position: 'relative' },
+    photoThumb: { width: '100%', height: '100%', borderRadius: 12 },
+    mainPhotoBorder: { borderWidth: 3, borderColor: Blue[500] },
+    deletePhotoBtn: { position: 'absolute', top: -5, right: -5, backgroundColor: '#EF4444', width: 20, height: 20, borderRadius: 10, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#FFF' },
+    mainLabel: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', paddingVertical: 2, borderBottomLeftRadius: 9, borderBottomRightRadius: 9 },
+    mainLabelText: { color: '#FFF', fontSize: 8, fontWeight: 'bold' },
+
     actionsCard: { marginHorizontal: Spacing.base, marginBottom: Spacing.lg, overflow: 'hidden' },
     actionItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: Spacing.md, paddingHorizontal: Spacing.lg, borderBottomWidth: 1, borderBottomColor: Neutral[100] },
     actionLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },

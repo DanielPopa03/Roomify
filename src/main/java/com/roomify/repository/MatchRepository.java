@@ -11,24 +11,47 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-
 import java.util.List;
 import java.util.Optional;
 
 @Repository
 public interface MatchRepository extends JpaRepository<Match, Long> {
-    List<Match> findByLandlord_IdAndStatus(String landlordId, MatchStatus status);
 
-    @Query("SELECT m.property.id FROM Match m WHERE m.tenant.id = :tenantId AND (m.status = 'TENANT_LIKED' OR m.status = 'MATCHED')")
+    // --- CRITICAL FOR SCORING SERVICE ---
+    // Fetches full history (Likes, Declines, Matches) so the Service can
+    // calculate the score penalty for dislikes.
+    List<Match> findAllByTenant_Id(String tenantId);
+
+    // --- LEGACY/HELPER QUERIES ---
+
+    // Updated to include DECLINED.
+    // If you use this for filtering "Seen" items, this ensures Disliked items count as "Seen".
+    @Query("SELECT m.property.id FROM Match m WHERE m.tenant.id = :tenantId AND (m.status = 'TENANT_LIKED' OR m.status = 'MATCHED' OR m.status = 'TENANT_DECLINED')")
     List<Long> findPropertyIdsInteractedByTenant(@Param("tenantId") String tenantId);
 
-    @Query("SELECT m.tenant.id FROM Match m WHERE m.landlord.id = :landlordId AND m.property.id = :propertyId AND (m.status = 'LANDLORD_LIKED' OR m.status = 'MATCHED')")
+    // Landlord view: Includes users they have already Liked, Matched with, or Declined
+    @Query("SELECT m.tenant.id FROM Match m WHERE m.landlord.id = :landlordId AND m.property.id = :propertyId AND (m.status = 'LANDLORD_LIKED' OR m.status = 'MATCHED' OR m.status = 'LANDLORD_DECLINED')")
     List<String> findTenantIdsInteractedByLandlord(@Param("landlordId") String landlordId, @Param("propertyId") Long propertyId);
+
+    // --- FINDERS ---
 
     Optional<Match> findByTenantAndProperty(User tenant, Property property);
 
+    // Used to prevent creating duplicate matches
+    Optional<Match> findByTenantAndPropertyId(String tenantId, Long propertyId);
+
     List<Match> findByTenant(User tenant);
+
     List<Match> findByLandlord(User landlord);
+
+    // Fetch confirmed matches or pending likes for Landlord dashboard
+    List<Match> findByLandlord_IdAndStatus(String landlordId, MatchStatus status);
+
+    List<Match> findByLandlord_IdAndStatusOrderByUpdatedAtDesc(String landlordId, MatchStatus status);
+
+    List<Match> findByTenant_IdAndStatusOrderByUpdatedAtDesc(String tenantId, MatchStatus status);
+
+    // --- DELETE OPERATIONS ---
 
     @Modifying
     @Transactional
@@ -37,8 +60,4 @@ public interface MatchRepository extends JpaRepository<Match, Long> {
     @Modifying
     @Transactional
     void deleteByTenantId(String tenantId);
-
-    Optional<Match> findByTenantAndPropertyId(String tenantId, Long propertyId);
-    List<Match> findByLandlord_IdAndStatusOrderByUpdatedAtDesc(String landlordId, MatchStatus status);
-    List<Match> findByTenant_IdAndStatusOrderByUpdatedAtDesc(String tenantId, MatchStatus status);
 }

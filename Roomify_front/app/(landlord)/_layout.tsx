@@ -28,13 +28,31 @@ export default function LandlordLayout() {
                         },
                     }),
                     tabBarLabelStyle: {
-                        fontSize: 12,
+                        fontSize: 10,
                         fontWeight: '500',
+                        marginBottom: 4
                     },
                 }}>
 
+                {/* 1. Main Home: Tenant Review (Tinder Style) */}
+                {/* Uses the "two man icon" (people) as requested */}
                 <Tabs.Screen
                     name="index"
+                    options={{
+                        title: 'Review',
+                        tabBarIcon: ({ color, focused }) => (
+                            <Ionicons
+                                name={focused ? 'people' : 'people-outline'}
+                                size={24}
+                                color={color}
+                            />
+                        ),
+                    }}
+                />
+
+                {/* 2. Properties List */}
+                <Tabs.Screen
+                    name="properties"
                     options={{
                         title: 'Properties',
                         href: '/(landlord)',
@@ -48,6 +66,8 @@ export default function LandlordLayout() {
                     }}
                 />
 
+                {/* 3. Interested Tab */}
+                {/* Uses the "current review icon" (checkbox) as requested */}
                 <Tabs.Screen
                     name="match"
                     options={{
@@ -55,7 +75,7 @@ export default function LandlordLayout() {
                         href: '/(landlord)/match',
                         tabBarIcon: ({ color, focused }) => (
                             <Ionicons
-                                name={focused ? 'people' : 'people-outline'}
+                                name={focused ? 'checkbox' : 'checkbox-outline'}
                                 size={24}
                                 color={color}
                             />
@@ -63,7 +83,7 @@ export default function LandlordLayout() {
                     }}
                 />
 
-                {/* --- NEW CHAT TAB --- */}
+                {/* 4. Chat Tab */}
                 <Tabs.Screen
                     name="chat"
                     options={{
@@ -79,6 +99,7 @@ export default function LandlordLayout() {
                     }}
                 />
 
+                {/* 5. Profile Tab */}
                 <Tabs.Screen
                     name="profile"
                     options={{

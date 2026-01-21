@@ -37,6 +37,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/properties/images/**").permitAll()
                         // Allow public access to interview videos for video player
                         .requestMatchers("/user/interview/video/**").permitAll()
+                        .requestMatchers("/user/images/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                         .anyRequest().authenticated())

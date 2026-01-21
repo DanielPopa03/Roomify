@@ -3,6 +3,7 @@ package com.roomify.service;
 import com.roomify.dto.PropertyRequest;
 import com.roomify.model.*;
 import com.roomify.model.enums.LayoutType;
+import com.roomify.model.enums.MatchStatus;
 import com.roomify.model.enums.PreferredTenantType;
 import com.roomify.repository.ChatMessageRepository;
 import com.roomify.repository.MatchRepository;
@@ -14,7 +15,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -48,24 +48,13 @@ public class PropertyService {
     }
 
     private void initStorage() {
-        try {
-            Files.createDirectories(rootLocation);
-        } catch (IOException e) {
-            throw new RuntimeException("Could not initialize storage", e);
-        }
+        try { Files.createDirectories(rootLocation); } catch (IOException e) { throw new RuntimeException(e); }
     }
 
-    /**
-     * Deletes all properties owned by a landlord, including physical images
-     * and associated matches. Called during account deletion.
-     */
     @Transactional
     public void deleteAllByLandlord(String landlordId) {
-        // Find all properties for this owner ID
         List<Property> properties = propertyRepository.findByOwner_Id(landlordId, Pageable.unpaged()).getContent();
-
         for (Property property : properties) {
-            // Delete chat messages for all matches related to this property
             List<Match> matches = matchRepository.findAll().stream()
                     .filter(m -> m.getProperty().getId().equals(property.getId()))
                     .collect(Collectors.toList());
@@ -73,11 +62,7 @@ public class PropertyService {
             for (Match match : matches) {
                 chatMessageRepository.deleteAll(chatMessageRepository.findByMatchIdOrderByCreatedAtAsc(match.getId()));
             }
-            
-            // Delete associated matches
             matchRepository.deleteByPropertyId(property.getId());
-
-            // Delete physical images
             if (property.getImages() != null) {
                 for (PropertyImage img : property.getImages()) {
                     deleteFileFromDisk(img.getUrl());
@@ -87,28 +72,115 @@ public class PropertyService {
         }
     }
 
+    // --- ALGORITHMIC FEED GENERATION ---
     public List<Property> getFeedForUser(String userId) {
         User user = userRepository.findById(userId).orElseThrow(() -> new RuntimeException("User not found"));
 
-        // If user is not a Tenant (Role USER/TENANT), return generic feed to prevent crash
-        if (!user.getRole().getName().equals("USER") && !user.getRole().getName().equals("TENANT")) {
+        if (user.getRole() != null &&
+                (!"USER".equalsIgnoreCase(user.getRole().getName()) &&
+                        !"TENANT".equalsIgnoreCase(user.getRole().getName()))) {
             return propertyRepository.findAll(PageRequest.of(0, 20)).getContent();
         }
 
-        return propertyRepository.findFeedForTenant(userId);
+        List<Match> history = matchRepository.findAllByTenant_Id(userId);
+
+        Set<Long> hiddenPropertyIds = history.stream()
+                .filter(m -> m.getStatus() == MatchStatus.MATCHED || m.getStatus() == MatchStatus.TENANT_LIKED)
+                .map(m -> m.getProperty().getId())
+                .collect(Collectors.toSet());
+
+        Map<Long, Double> historicalScores = history.stream()
+                .collect(Collectors.toMap(m -> m.getProperty().getId(), Match::getScore, (s1, s2) -> s1));
+
+        List<Property> candidates = propertyRepository.findAll().stream()
+                .filter(p -> !hiddenPropertyIds.contains(p.getId()))
+                .filter(p -> !p.getOwner().getId().equals(userId))
+                .collect(Collectors.toList());
+
+        Map<Long, Double> scores = new HashMap<>();
+        double VISIBILITY_THRESHOLD = 0.0;
+
+        for (Property p : candidates) {
+            double attributeScore = calculateMatchScore(user, p);
+            double historyScore = historicalScores.getOrDefault(p.getId(), 0.0);
+
+            double totalScore = attributeScore + historyScore;
+
+            if (totalScore >= VISIBILITY_THRESHOLD) {
+                scores.put(p.getId(), totalScore);
+            }
+        }
+
+        List<Property> sortedFeed = candidates.stream()
+                .filter(p -> scores.containsKey(p.getId()))
+                .sorted((p1, p2) -> Double.compare(scores.get(p2.getId()), scores.get(p1.getId())))
+                .collect(Collectors.toList());
+
+        if (sortedFeed.size() > 10) {
+            int bottomHalfStart = sortedFeed.size() / 2;
+            for (int i = 4; i < bottomHalfStart; i += 5) {
+                int swapIndex = bottomHalfStart + (int) (Math.random() * (sortedFeed.size() - bottomHalfStart));
+                Collections.swap(sortedFeed, i, swapIndex);
+            }
+        }
+
+        return sortedFeed;
     }
+
+    private double calculateMatchScore(User tenant, Property property) {
+        double score = 50.0; // Base Score
+
+        // 1. Pets (HARD Filter - Dealbreaker)
+        if (Boolean.TRUE.equals(tenant.getHasPets()) && Boolean.FALSE.equals(property.getPetFriendly())) {
+            return -100.0;
+        }
+
+        // 2. Smoking (HARD Filter - Dealbreaker)
+        if (Boolean.TRUE.equals(tenant.getIsSmoker()) && Boolean.FALSE.equals(property.getSmokerFriendly())) {
+            return -100.0;
+        }
+
+        // 3. Tenant Type (SOFT Filter - Penalty)
+        // UPDATED: Now subtracts 20 points instead of returning -100
+        if (property.getPreferredTenants() != null && !property.getPreferredTenants().isEmpty()) {
+            if (tenant.getTenantType() != null) {
+                boolean isAccepted = property.getPreferredTenants().contains(tenant.getTenantType());
+
+                if (!isAccepted) {
+                    score -= 20.0; // Penalty (Not target demographic), but still visible
+                } else {
+                    score += 20.0; // Bonus (Perfect demographic)
+                }
+            }
+        }
+
+        // 4. Rooms
+        int desiredRooms = tenant.getMinRooms() != null ? tenant.getMinRooms() : 1;
+        if (property.getNumberOfRooms() >= desiredRooms) {
+            score += 15.0;
+            if (property.getNumberOfRooms() == desiredRooms) score += 5.0;
+        } else {
+            score -= 15.0;
+        }
+
+        // 5. Bathroom
+        if (Boolean.TRUE.equals(tenant.getWantsExtraBathroom())) {
+            if (Boolean.TRUE.equals(property.getHasExtraBathroom())) score += 10.0;
+            else score -= 5.0;
+        }
+
+        return score;
+    }
+
+    // --- CRUD ---
 
     @Transactional
     public Property createProperty(PropertyRequest request, List<MultipartFile> files, String userId) {
         int newFilesCount = (files == null) ? 0 : files.size();
-
-        if (newFilesCount < 1) throw new RuntimeException("Validation Error: You must upload at least one photo.");
+        if (newFilesCount < 1) throw new RuntimeException("Validation Error: Upload at least one photo.");
         if (newFilesCount > MAX_IMAGES) throw new RuntimeException("Too many images.");
 
-        // FIX: Find by ID (Primary Key) to support Facebook users without emails
-        User owner = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
-
+        User owner = userRepository.findById(userId).orElseThrow(() -> new RuntimeException("User not found"));
         Property property = new Property();
         property.setOwner(owner);
 
@@ -116,31 +188,22 @@ public class PropertyService {
         updateEntityFromRequest(property, request);
 
         List<PropertyImage> newImages = new ArrayList<>();
-        if (files != null && !files.isEmpty()) {
-            newImages = saveFiles(files, property);
-        }
+        if (files != null && !files.isEmpty()) newImages = saveFiles(files, property);
 
         try {
             property.setImages(new ArrayList<>());
             reorderImages(property, request.getOrderedIdentifiers(), newImages);
             return propertyRepository.save(property);
         } catch (Exception e) {
-            for (PropertyImage img : newImages) {
-                deleteFileFromDisk(img.getUrl());
-            }
+            for (PropertyImage img : newImages) deleteFileFromDisk(img.getUrl());
             throw e;
         }
     }
 
     @Transactional
     public Property updateProperty(Long id, PropertyRequest request, List<MultipartFile> newFiles, String userId) {
-        Property property = propertyRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Property not found"));
-
-        // FIX: Verify ownership using ID
-        if (!property.getOwner().getId().equals(userId)) {
-            throw new RuntimeException("Unauthorized: You do not own this property");
-        }
+        Property property = propertyRepository.findById(id).orElseThrow(() -> new RuntimeException("Property not found"));
+        if (!property.getOwner().getId().equals(userId)) throw new RuntimeException("Unauthorized");
 
         updateEntityFromRequest(property, request);
 
@@ -148,7 +211,6 @@ public class PropertyService {
             List<PropertyImage> imagesToDelete = property.getImages().stream()
                     .filter(img -> request.getDeletedImageIds().contains(img.getId()))
                     .collect(Collectors.toList());
-
             for (PropertyImage img : imagesToDelete) {
                 deleteFileFromDisk(img.getUrl());
                 property.getImages().remove(img);
@@ -156,35 +218,22 @@ public class PropertyService {
         }
 
         List<PropertyImage> newImagesList = new ArrayList<>();
-        if (newFiles != null && !newFiles.isEmpty()) {
-            newImagesList = saveFiles(newFiles, property);
-        }
+        if (newFiles != null && !newFiles.isEmpty()) newImagesList = saveFiles(newFiles, property);
 
         try {
             reorderImages(property, request.getOrderedIdentifiers(), newImagesList);
-
-            if (property.getImages().isEmpty()) {
-                throw new RuntimeException("Validation Error: You must have at least one photo.");
-            }
-
+            if (property.getImages().isEmpty()) throw new RuntimeException("Must have one photo.");
             return propertyRepository.save(property);
         } catch (Exception e) {
-            for (PropertyImage img : newImagesList) {
-                deleteFileFromDisk(img.getUrl());
-            }
+            for (PropertyImage img : newImagesList) deleteFileFromDisk(img.getUrl());
             throw e;
         }
     }
 
     @Transactional
     public void deleteProperty(Long id, String userId) {
-        Property property = propertyRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Property not found"));
-
-        // FIX: Verify ownership using ID
-        if (!property.getOwner().getId().equals(userId)) {
-            throw new RuntimeException("Unauthorized");
-        }
+        Property property = propertyRepository.findById(id).orElseThrow(() -> new RuntimeException("Property not found"));
+        if (!property.getOwner().getId().equals(userId)) throw new RuntimeException("Unauthorized");
 
         // Delete chat messages for all matches related to this property
         List<Match> matches = matchRepository.findAll().stream()
@@ -197,25 +246,17 @@ public class PropertyService {
 
         // Delete associated matches
         matchRepository.deleteByPropertyId(property.getId());
-
-        // Delete physical images
         if (property.getImages() != null) {
-            for (PropertyImage img : property.getImages()) {
-                deleteFileFromDisk(img.getUrl());
-            }
+            for (PropertyImage img : property.getImages()) deleteFileFromDisk(img.getUrl());
         }
-
         propertyRepository.delete(property);
     }
-
-    // --- HELPERS ---
 
     private void deleteFileFromDisk(String fileUrl) {
         if (fileUrl == null || fileUrl.isEmpty()) return;
         try {
             String filename = fileUrl.substring(fileUrl.lastIndexOf("/") + 1);
-            Path filePath = this.rootLocation.resolve(filename).normalize();
-            Files.deleteIfExists(filePath);
+            Files.deleteIfExists(this.rootLocation.resolve(filename));
         } catch (IOException e) {
             System.err.println("Warning: Could not delete file: " + fileUrl);
         }
@@ -227,19 +268,9 @@ public class PropertyService {
             try {
                 String originalName = file.getOriginalFilename();
                 if (originalName == null || originalName.isBlank()) originalName = "photo.jpg";
-
-                originalName = originalName.replaceAll("[^a-zA-Z0-9.-]", "_");
-                String filename = UUID.randomUUID().toString() + "_" + originalName;
+                String filename = UUID.randomUUID().toString() + "_" + originalName.replaceAll("[^a-zA-Z0-9.-]", "_");
                 Files.copy(file.getInputStream(), this.rootLocation.resolve(filename));
-
-                // FIX: Save ONLY the relative path starting with /api
-                // This ensures the database stays clean regardless of your local IP
-                String url = "/api/properties/images/" + filename;
-
-                imageEntities.add(PropertyImage.builder()
-                        .url(url)
-                        .property(property)
-                        .build());
+                imageEntities.add(PropertyImage.builder().url("/api/properties/images/" + filename).property(property).build());
             } catch (IOException e) {
                 throw new RuntimeException("Failed to store file", e);
             }
@@ -249,68 +280,55 @@ public class PropertyService {
 
     private void reorderImages(Property property, List<String> orderedIdentifiers, List<PropertyImage> newImages) {
         if (property.getImages() == null) property.setImages(new ArrayList<>());
+        Map<Long, PropertyImage> existingMap = new HashMap<>();
+        for (PropertyImage img : property.getImages()) if (img.getId() != null) existingMap.put(img.getId(), img);
 
-        Map<Long, PropertyImage> existingImageMap = new HashMap<>();
-        for (PropertyImage img : property.getImages()) {
-            if (img.getId() != null) existingImageMap.put(img.getId(), img);
-        }
-
-        List<PropertyImage> reorderedList = new ArrayList<>();
+        List<PropertyImage> reordered = new ArrayList<>();
         int orderIndex = 0;
-        int newImagePointer = 0;
+        int newPointer = 0;
 
         if (orderedIdentifiers != null) {
-            for (String identifier : orderedIdentifiers) {
-                if (identifier.startsWith("ID_")) {
+            for (String idStr : orderedIdentifiers) {
+                if (idStr.startsWith("ID_")) {
                     try {
-                        Long id = Long.parseLong(identifier.substring(3));
-                        PropertyImage img = existingImageMap.get(id);
+                        Long id = Long.parseLong(idStr.substring(3));
+                        PropertyImage img = existingMap.get(id);
                         if (img != null) {
                             img.setOrderIndex(orderIndex++);
-                            reorderedList.add(img);
-                            existingImageMap.remove(id);
+                            reordered.add(img);
+                            existingMap.remove(id);
                         }
                     } catch (NumberFormatException ignored) {}
-                } else if (identifier.startsWith("NEW_")) {
-                    if (newImagePointer < newImages.size()) {
-                        PropertyImage img = newImages.get(newImagePointer++);
-                        img.setOrderIndex(orderIndex++);
-                        img.setProperty(property);
-                        reorderedList.add(img);
-                    }
+                } else if (idStr.startsWith("NEW_") && newPointer < newImages.size()) {
+                    PropertyImage img = newImages.get(newPointer++);
+                    img.setOrderIndex(orderIndex++);
+                    img.setProperty(property);
+                    reordered.add(img);
                 }
             }
         }
 
-        existingImageMap.values().forEach(img -> {
-            img.setOrderIndex(reorderedList.size());
-            reorderedList.add(img);
-        });
-
-        while (newImagePointer < newImages.size()) {
-            PropertyImage img = newImages.get(newImagePointer++);
-            img.setOrderIndex(reorderedList.size());
+        for (PropertyImage img : existingMap.values()) {
+            img.setOrderIndex(reordered.size());
+            reordered.add(img);
+        }
+        while (newPointer < newImages.size()) {
+            PropertyImage img = newImages.get(newPointer++);
+            img.setOrderIndex(reordered.size());
             img.setProperty(property);
-            reorderedList.add(img);
+            reordered.add(img);
         }
 
         property.getImages().clear();
-        property.getImages().addAll(reorderedList);
+        property.getImages().addAll(reordered);
     }
 
     private void resolveLocationLogic(PropertyRequest request) {
-        GeocodingService.LocationResult result = geocodingService.resolveLocation(
-                request.getAddress(),
-                request.getLatitude(),
-                request.getLongitude()
-        );
+        GeocodingService.LocationResult result = geocodingService.resolveLocation(request.getAddress(), request.getLatitude(), request.getLongitude());
         request.setAddress(result.address);
         request.setLatitude(result.latitude);
         request.setLongitude(result.longitude);
-
-        if (request.getAddress() == null || request.getAddress().isBlank()) {
-            throw new RuntimeException("Address is required.");
-        }
+        if (request.getAddress() == null || request.getAddress().isBlank()) throw new RuntimeException("Address required.");
     }
 
     public Page<Property> getPropertiesByUser(String userId, Pageable pageable) {
@@ -342,11 +360,16 @@ public class PropertyService {
             try { property.setLayoutType(LayoutType.valueOf(request.getLayoutType().trim().toUpperCase())); }
             catch (IllegalArgumentException ignored) {}
         }
+
         if (request.getPreferredTenants() != null) {
-            Set<PreferredTenantType> tenantPrefs = request.getPreferredTenants().stream()
-                    .map(t -> { try { return PreferredTenantType.fromDisplayName(t.trim()); } catch (Exception e) { return null; } })
-                    .filter(Objects::nonNull).collect(Collectors.toSet());
-            property.setPreferredTenants(tenantPrefs);
+            Set<PreferredTenantType> prefs = request.getPreferredTenants().stream()
+                    .map(t -> {
+                        try { return PreferredTenantType.fromDisplayName(t.trim()); }
+                        catch (Exception e) { return null; }
+                    })
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+            property.setPreferredTenants(prefs);
         }
     }
 }

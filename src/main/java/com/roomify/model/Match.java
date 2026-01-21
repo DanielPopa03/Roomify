@@ -42,6 +42,14 @@ public class Match {
     @Column(nullable = false)
     private MatchStatus status;
 
+    // --- NEW: MATCH SCORE ---
+    // Default 0.
+    // Swipe Right (Like) -> Increases (e.g., +10)
+    // Swipe Left (Pass) -> Decreases (e.g., -50)
+    @Column(columnDefinition = "double precision default 0")
+    @Builder.Default
+    private Double score = 0.0;
+
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;

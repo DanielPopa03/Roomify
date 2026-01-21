@@ -1,14 +1,31 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter, useFocusEffect } from 'expo-router'; // Added useFocusEffect
+import { useRouter, useFocusEffect } from 'expo-router';
 import React, { useState, useEffect, useCallback } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, Platform, Modal, Dimensions } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, Platform, Modal, Dimensions, Image, Switch } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as ImagePicker from 'expo-image-picker';
 
-import { Avatar, Button, Card, Input } from '@/components/ui';
-import { Blue, BorderRadius, Neutral, Spacing, Typography } from '@/constants/theme';
+import { Avatar, Button, Card, Input, ImageGalleryModal } from '@/components/ui';
+import { Blue, BorderRadius, Neutral, Spacing, Typography, Shadows } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { InterviewApi } from '@/services/api';
+
+// --- HELPER: Fix Image URLs ---
+const getImageUrl = (path: string | null | undefined) => {
+    if (!path) return null;
+    if (path.startsWith('http') || path.startsWith('data:')) return path;
+    const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
+    const BASE_URL = `http://${MY_IP}:8080`;
+    return path.startsWith('/') ? `${BASE_URL}${path}` : `${BASE_URL}/${path}`;
+};
+
+const TENANT_TYPES = [
+    { label: 'Student', value: 'STUDENT' },
+    { label: 'Professional', value: 'PROFESSIONAL' },
+    { label: 'Family', value: 'FAMILY' },
+    { label: 'Couple', value: 'COUPLE' },
+];
 
 export default function ProfileScreen() {
     const router = useRouter();
@@ -21,8 +38,8 @@ export default function ProfileScreen() {
     const [phone, setPhone] = useState('');
     const [email, setEmail] = useState('');
     const [jobTitle, setJobTitle] = useState('');
-    const [smokerFriendly, setSmokerFriendly] = useState(false);
-    const [petFriendly, setPetFriendly] = useState(false);
+    const [isSmoker, setIsSmoker] = useState(false);
+    const [hasPets, setHasPets] = useState(false);       
     const [isVideoPublic, setIsVideoPublic] = useState(true);
 
     const [originalData, setOriginalData] = useState({
@@ -31,31 +48,27 @@ export default function ProfileScreen() {
         phone: '',
         email: '',
         jobTitle: '',
-        smokerFriendly: false,
-        petFriendly: false,
+        isSmoker: false,
+        hasPets: false,
         isVideoPublic: true,
     });
+    const [photos, setPhotos] = useState<string[]>([]);
 
-    const [phoneError, setPhoneError] = useState<string | null>(null);
-    const [emailError, setEmailError] = useState<string | null>(null);
+    // PREFERENCES
+    const [minRooms, setMinRooms] = useState(1);
+    const [wantsExtraBath, setWantsExtraBath] = useState(false);
+    const [tenantType, setTenantType] = useState('STUDENT');
+
+    // UI State
     const [isEditing, setIsEditing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [stats, setStats] = useState({ propertiesViewed: 0, interests: 0, matches: 0 });
     const [videoModalVisible, setVideoModalVisible] = useState(false);
+    const [isGalleryVisible, setIsGalleryVisible] = useState(false);
 
     const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
 
-    const PHONE_VALIDATION_REGEX = /^[+]?[0-9\s\-\(\)]{7,20}$/;
-    const ALLOWED_PHONE_CHARS = /[0-9\s\+\-\(\)]/g;
-    const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    // --- SYNC WITH CONTEXT ---
-    // Every time the screen is focused, pull fresh data from the DB
-    useFocusEffect(
-        useCallback(() => {
-            refreshUser();
-        }, [])
-    );
+    useFocusEffect(useCallback(() => { refreshUser(); }, []));
 
     useEffect(() => {
         if (dbUser && !isEditing) {
@@ -65,8 +78,8 @@ export default function ProfileScreen() {
                 phone: dbUser.phoneNumber || '',
                 email: dbUser.email || user?.email || '',
                 jobTitle: dbUser.jobTitle || '',
-                smokerFriendly: dbUser.smokerFriendly || false,
-                petFriendly: dbUser.petFriendly || false,
+                isSmoker: dbUser.isSmoker || false,
+                hasPets: dbUser.hasPets || false,
                 isVideoPublic: dbUser.isVideoPublic ?? true,
             };
             setFullName(data.name);
@@ -74,143 +87,96 @@ export default function ProfileScreen() {
             setPhone(data.phone);
             setEmail(data.email);
             setJobTitle(data.jobTitle);
-            setSmokerFriendly(data.smokerFriendly);
-            setPetFriendly(data.petFriendly);
+            setIsSmoker(data.isSmoker);
+            setHasPets(data.hasPets);
             setIsVideoPublic(data.isVideoPublic);
             setOriginalData(data);
+            setMinRooms(dbUser.minRooms || 1);
+            setWantsExtraBath(dbUser.wantsExtraBathroom || false);
+            setTenantType(dbUser.tenantType || 'STUDENT');
+        
+            if (dbUser.photos && dbUser.photos.length > 0) {
+                setPhotos(dbUser.photos);
+            } else if (dbUser.picture) {
+                setPhotos([dbUser.picture]);
+            } else if (user?.picture) {
+                setPhotos([user.picture]);
+            }
         }
     }, [dbUser, isEditing]);
 
-    // --- HANDLERS ---
-
-    const handlePhoneChange = (text: string) => {
-        const filteredText = text.match(ALLOWED_PHONE_CHARS)?.join('') || '';
-        setPhone(filteredText);
-        if (filteredText.length > 0 && !PHONE_VALIDATION_REGEX.test(filteredText)) {
-            setPhoneError("Invalid phone format.");
-        } else {
-            setPhoneError(null);
+    const pickImage = async () => {
+        if (photos.length >= 7) { Alert.alert("Limit Reached", "Max 7 photos."); return; }
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true, aspect: [1, 1], quality: 0.5, base64: true,
+        });
+        if (!result.canceled && result.assets[0].base64) {
+            const newImage = `data:image/jpeg;base64,${result.assets[0].base64}`;
+            setPhotos(prev => [...prev, newImage]);
         }
-    };
-
-    const handleEmailChange = (text: string) => {
-        setEmail(text);
-        if (text.trim() === '') setEmailError("Email is required.");
-        else if (!EMAIL_REGEX.test(text)) setEmailError("Invalid email address.");
-        else setEmailError(null);
-    };
-
-    const handleCancel = () => {
-        setFullName(originalData.name);
-        setBio(originalData.bio);
-        setPhone(originalData.phone);
-        setEmail(originalData.email);
-        setPhoneError(null);
-        setEmailError(null);
-        setIsEditing(false);
     };
 
     const handleSave = async () => {
         const userId = user?.sub;
         if (!userId) return;
-        if (phoneError || emailError || !email) return;
-
         setIsSaving(true);
         try {
             const token = await getAccessToken();
             const response = await fetch(`http://${MY_IP}:8080/user/${userId}`, {
                 method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({
-                    name: fullName,
-                    bio: bio,
-                    phoneNumber: phone,
-                    email: email
+                    name: fullName, bio, phoneNumber: phone, email, photos,
+                    // SEND PREFERENCES
+                    isSmoker, hasPets, minRooms, wantsExtraBathroom: wantsExtraBath, tenantType
                 })
             });
-
-            if (response.ok) {
-                await refreshUser();
-                setIsEditing(false);
-                Alert.alert('Success', 'Profile updated successfully!');
-            } else {
-                Alert.alert('Error', 'Update failed.');
-            }
-        } catch (error) {
-            Alert.alert('Error', 'Network error.');
-        } finally {
-            setIsSaving(false);
-        }
+            if (response.ok) { await refreshUser(); setIsEditing(false); Alert.alert('Success', 'Profile Updated'); }
+        } catch (error) { Alert.alert('Error', 'Network error.'); }
+        finally { setIsSaving(false); }
     };
 
-    const handleDeleteAccount = async () => {
-        const userId = user?.sub;
-        if (!userId) return;
+    const handleLogout = async () => { await logout(); router.replace('/login'); };
 
-        setIsSaving(true);
-        try {
-            const token = await getAccessToken();
-            const response = await fetch(`http://${MY_IP}:8080/user/${userId}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
+    if (!dbUser && !user) return <ActivityIndicator style={styles.centered} size="large" color={Blue[600]} />;
 
-            if (response.ok) {
-                await logout();
-                router.replace('/login');
-            } else {
-                setIsSaving(false);
-                console.error("Deletion failed");
-            }
-        } catch (error) {
-            setIsSaving(false);
-            console.error("Network error on delete", error);
-        }
-    };
-
-    const handleLogout = async () => {
-        await logout();
-        router.replace('/login');
-    };
-
-    if (!dbUser && !user) {
-        return (
-            <View style={[styles.container, styles.centered]}>
-                <ActivityIndicator size="large" color={Blue[600]} />
-            </View>
-        );
-    }
-
-    const isSaveDisabled = isSaving || !!phoneError || !!emailError || email.trim() === '';
+    const mainPhoto = photos.length > 0 ? getImageUrl(photos[0]) : null;
+    const galleryImages = photos.map(p => getImageUrl(p)).filter(p => p !== null) as string[];
 
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                    <Ionicons name="chevron-back" size={24} color={Blue[600]} />
-                </TouchableOpacity>
+                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}><Ionicons name="chevron-back" size={24} color={Blue[600]} /></TouchableOpacity>
                 <Text style={styles.headerTitle}>Profile</Text>
-
-                <TouchableOpacity
-                    onPress={isEditing ? handleCancel : () => setIsEditing(true)}
-                    disabled={isSaving}
-                >
+                <TouchableOpacity onPress={() => setIsEditing(!isEditing)}>
                     <Text style={styles.editButton}>{isEditing ? 'Cancel' : 'Edit'}</Text>
                 </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.content} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+            <ScrollView style={styles.content}>
+                {/* AVATAR SECTION */}
                 <View style={styles.profileHeaderCard}>
                     <LinearGradient colors={[Blue[500], Blue[600]]} style={styles.gradientBackground} />
                     <View style={styles.avatarSection}>
-                        <View style={styles.avatarWrapper}>
-                            <Avatar uri={user?.picture} name={fullName || 'User'} size={90} />
-                            {isEditing && (
-                                <TouchableOpacity style={styles.editAvatarButton}>
-                                    <Ionicons name="camera" size={16} color="#FFFFFF" />
+                        <TouchableOpacity onPress={isEditing ? pickImage : () => setIsGalleryVisible(true)}>
+                            <Avatar uri={mainPhoto} name={fullName} size={90} />
+                            {isEditing && <View style={styles.editAvatarButton}><Ionicons name="camera" size={16} color="#FFFFFF" /></View>}
+                        </TouchableOpacity>
+                        <Text style={styles.userName}>{fullName}</Text>
+                        <Text style={styles.userEmail}>{tenantType} • {email}</Text>
+                    </View>
+                </View>
+
+                {/* PHOTOS */}
+                {photos.length > 0 && (
+                    <View style={styles.gallerySection}>
+                        <Text style={styles.sectionTitle}>Photos</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoList}>
+                            {isEditing && <TouchableOpacity style={styles.addPhotoButton} onPress={pickImage}><Ionicons name="add" size={30} color={Blue[600]} /></TouchableOpacity>}
+                            {photos.map((photo, index) => (
+                                <TouchableOpacity key={index} style={styles.photoThumbWrapper} onPress={() => { /* ... logic */ }}>
+                                    <Image source={{ uri: getImageUrl(photo) }} style={styles.photoThumb} />
                                 </TouchableOpacity>
                             )}
                         </View>
@@ -226,24 +192,31 @@ export default function ProfileScreen() {
                         </View>
                         <Text style={styles.userEmail}>{isEditing ? email : originalData.email}</Text>
 
-                        <View style={styles.statsRow}>
-                            <View style={styles.statItem}>
-                                <Text style={styles.statNumber}>{stats.propertiesViewed}</Text>
-                                <Text style={styles.statLabel}>Viewed</Text>
-                            </View>
-                            <View style={styles.statDivider} />
-                            <View style={styles.statItem}>
-                                <Text style={styles.statNumber}>{stats.interests}</Text>
-                                <Text style={styles.statLabel}>Interests</Text>
-                            </View>
-                            <View style={styles.statDivider} />
-                            <View style={styles.statItem}>
-                                <Text style={styles.statNumber}>{stats.matches}</Text>
-                                <Text style={styles.statLabel}>Matches</Text>
-                            </View>
+                {/* --- LIFESTYLE & PREFERENCES --- */}
+                <Text style={styles.sectionTitle}>Preferences</Text>
+                <Card shadow="sm" style={styles.infoCard}>
+                    {/* TENANT TYPE SELECTOR */}
+                    <View style={styles.prefRow}>
+                        <View style={styles.prefLabelContainer}>
+                            <Ionicons name="briefcase-outline" size={20} color={Neutral[600]} />
+                            <Text style={styles.prefLabel}>I am a...</Text>
                         </View>
+                        {isEditing ? (
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 5, maxWidth: 200 }}>
+                                {TENANT_TYPES.map((t) => (
+                                    <TouchableOpacity
+                                        key={t.value}
+                                        style={[styles.typeChip, tenantType === t.value && styles.typeChipActive]}
+                                        onPress={() => setTenantType(t.value)}
+                                    >
+                                        <Text style={[styles.typeChipText, tenantType === t.value && styles.typeChipTextActive]}>{t.label}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        ) : (
+                            <Text style={styles.valueText}>{TENANT_TYPES.find(t => t.value === tenantType)?.label || tenantType}</Text>
+                        )}
                     </View>
-                </View>
 
                 {/* Express Profile Setup Card - Only show if not verified */}
                 {!dbUser?.isVerified && (
@@ -298,45 +271,25 @@ export default function ProfileScreen() {
                             style={emailError ? { borderColor: '#EF4444', borderWidth: 1 } : {}}
                         />
                         {emailError && isEditing && <Text style={styles.errorText}>{emailError}</Text>}
+                        <View style={styles.prefLabelContainer}><Ionicons name="flame-outline" size={20} color={Neutral[600]} /><Text style={styles.prefLabel}>Smoker</Text></View>
+                        <Switch value={isSmoker} onValueChange={isEditing ? setIsSmoker : undefined} disabled={!isEditing} trackColor={{ false: Neutral[300], true: Blue[600] }} />
                     </View>
 
-                    <View>
-                        <Input
-                            label="Phone"
-                            value={phone}
-                            onChangeText={handlePhoneChange}
-                            placeholder="+1 (555) 000-0000"
-                            keyboardType="phone-pad"
-                            editable={isEditing}
-                            icon={<Ionicons name="call-outline" size={18} color={Neutral[400]} />}
-                            style={phoneError ? { borderColor: '#EF4444', borderWidth: 1 } : {}}
-                        />
-                        {phoneError && isEditing && <Text style={styles.errorText}>{phoneError}</Text>}
+                    {/* PETS */}
+                    <View style={styles.prefRow}>
+                        <View style={styles.prefLabelContainer}><Ionicons name="paw-outline" size={20} color={Neutral[600]} /><Text style={styles.prefLabel}>Pets</Text></View>
+                        <Switch value={hasPets} onValueChange={isEditing ? setHasPets : undefined} disabled={!isEditing} trackColor={{ false: Neutral[300], true: Blue[600] }} />
                     </View>
 
-                    <Input
-                        label="About Me"
-                        value={bio}
-                        onChangeText={setBio}
-                        placeholder="Tell landlords about yourself..."
-                        multiline
-                        numberOfLines={3}
-                        editable={isEditing}
-                        icon={<Ionicons name="document-text-outline" size={18} color={Neutral[400]} />}
-                    />
-
-                    {isEditing && (
-                        <Button
-                            title={isSaving ? "Saving..." : "Save Changes"}
-                            onPress={handleSave}
-                            disabled={isSaveDisabled}
-                            style={{
-                                marginTop: Spacing.md,
-                                backgroundColor: isSaveDisabled ? Neutral[300] : Blue[600],
-                            }}
-                        />
-                    )}
-                </Card>
+                    {/* ROOMS */}
+                    <View style={styles.prefRow}>
+                        <View style={styles.prefLabelContainer}><Ionicons name="bed-outline" size={20} color={Neutral[600]} /><Text style={styles.prefLabel}>Min. Rooms</Text></View>
+                        <View style={styles.counterContainer}>
+                            {isEditing && <TouchableOpacity onPress={() => setMinRooms(Math.max(1, minRooms - 1))} style={styles.counterBtn}><Ionicons name="remove" size={16} color={Blue[600]} /></TouchableOpacity>}
+                            <Text style={styles.counterText}>{minRooms}</Text>
+                            {isEditing && <TouchableOpacity onPress={() => setMinRooms(Math.min(5, minRooms + 1))} style={styles.counterBtn}><Ionicons name="add" size={16} color={Blue[600]} /></TouchableOpacity>}
+                        </View>
+                    </View>
 
                 {/* Professional Info Section */}
                 <Text style={styles.sectionTitle}>Professional Info</Text>
@@ -357,20 +310,20 @@ export default function ProfileScreen() {
                 <View style={styles.lifestyleCard}>
                     <View style={styles.lifestyleRow}>
                         <View style={styles.lifestyleItem}>
-                            <View style={[styles.lifestyleBadge, dbUser?.smokerFriendly === true ? styles.badgeActive : styles.badgeInactive]}>
-                                <Text style={styles.lifestyleEmoji}>{dbUser?.smokerFriendly === true ? '🚬' : '🚭'}</Text>
+                            <View style={[styles.lifestyleBadge, dbUser?.isSmoker === true ? styles.badgeActive : styles.badgeInactive]}>
+                                <Text style={styles.lifestyleEmoji}>{dbUser?.isSmoker === true ? '🚬' : '🚭'}</Text>
                             </View>
                             <Text style={styles.lifestyleLabel}>
-                                {dbUser?.smokerFriendly === true ? 'Smoker Friendly' : 'Non-Smoking'}
+                                {dbUser?.isSmoker === true ? 'Smoker Friendly' : 'Non-Smoking'}
                             </Text>
                         </View>
                         
                         <View style={styles.lifestyleItem}>
-                            <View style={[styles.lifestyleBadge, dbUser?.petFriendly === true ? styles.badgeActive : styles.badgeInactive]}>
-                                <Text style={styles.lifestyleEmoji}>{dbUser?.petFriendly === true ? '🐾' : '🚫'}</Text>
+                            <View style={[styles.lifestyleBadge, dbUser?.hasPets === true ? styles.badgeActive : styles.badgeInactive]}>
+                                <Text style={styles.lifestyleEmoji}>{dbUser?.hasPets === true ? '🐾' : '🚫'}</Text>
                             </View>
                             <Text style={styles.lifestyleLabel}>
-                                {dbUser?.petFriendly === true ? 'Pet Friendly' : 'No Pets'}
+                                {dbUser?.hasPets === true ? 'Pet Friendly' : 'No Pets'}
                             </Text>
                         </View>
                     </View>
@@ -505,19 +458,25 @@ export default function ProfileScreen() {
                     <Ionicons name="log-out-outline" size={20} color="#EF4444" />
                     <Text style={styles.logoutText}>Logout</Text>
                 </TouchableOpacity>
+              <View style={styles.prefRow}>
+                    <View style={styles.prefLabelContainer}><Ionicons name="water-outline" size={20} color={Neutral[600]} /><Text style={styles.prefLabel}>2+ Bathrooms</Text></View>
+                    <Switch value={wantsExtraBath} onValueChange={isEditing ? setWantsExtraBath : undefined} disabled={!isEditing} trackColor={{ false: Neutral[300], true: Blue[600] }} />
+              </View>
 
-                <TouchableOpacity
-                    style={styles.deleteButton}
-                    onPress={handleDeleteAccount}
-                    disabled={isSaving}
-                >
-                    <Text style={styles.deleteButtonText}>
-                        {isSaving ? "Processing..." : "Delete Account"}
-                    </Text>
-                </TouchableOpacity>
+                {/* PERSONAL INFO */}
+                <Text style={styles.sectionTitle}>Personal Info</Text>
+                <Card shadow="sm" style={styles.infoCard}>
+                    <Input label="Full Name" value={fullName} onChangeText={setFullName} editable={isEditing} />
+                    <Input label="Email" value={email} onChangeText={setEmail} editable={isEditing} />
+                    <Input label="Phone" value={phone} onChangeText={setPhone} editable={isEditing} />
+                    <Input label="About Me" value={bio} onChangeText={setBio} multiline numberOfLines={3} editable={isEditing} />
+                    {isEditing && <Button title={isSaving ? "Saving..." : "Save Changes"} onPress={handleSave} disabled={isSaving} style={{ marginTop: Spacing.md }} />}
+                </Card>
 
-                <Text style={styles.version}>Roomify v1.0.0</Text>
+                <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}><Text style={styles.logoutText}>Logout</Text></TouchableOpacity>
             </ScrollView>
+
+            <ImageGalleryModal visible={isGalleryVisible} images={galleryImages} onClose={() => setIsGalleryVisible(false)} />
         </View>
     );
 }
@@ -530,11 +489,9 @@ const styles = StyleSheet.create({
     headerTitle: { fontSize: Typography.size.lg, fontWeight: Typography.weight.semibold, color: Neutral[900] },
     editButton: { fontSize: Typography.size.base, color: Blue[600], fontWeight: Typography.weight.medium },
     content: { flex: 1 },
-    scrollContent: { paddingBottom: Spacing.xl * 2 },
     profileHeaderCard: { position: 'relative', marginBottom: Spacing.lg },
     gradientBackground: { position: 'absolute', top: 0, left: 0, right: 0, height: 100 },
     avatarSection: { alignItems: 'center', paddingTop: Spacing.lg, paddingBottom: Spacing.md },
-    avatarWrapper: { position: 'relative' },
     editAvatarButton: { position: 'absolute', bottom: 0, right: 0, backgroundColor: Blue[600], width: 24, height: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#FFFFFF' },
     nameRow: { flexDirection: 'row', alignItems: 'center', marginTop: Spacing.md, gap: 8 },
     userName: { fontSize: Typography.size.xl, fontWeight: Typography.weight.bold, color: Neutral[900] },
@@ -607,4 +564,30 @@ const styles = StyleSheet.create({
     modalActions: { padding: Spacing.lg, paddingBottom: 40 },
     retakeButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, backgroundColor: '#EF4444', paddingVertical: Spacing.md, borderRadius: BorderRadius.lg },
     retakeButtonText: { color: '#fff', fontSize: Typography.size.base, fontWeight: Typography.weight.semibold }
+    userName: { marginTop: Spacing.md, fontSize: Typography.size.xl, fontWeight: Typography.weight.bold, color: Neutral[900] },
+    userEmail: { fontSize: Typography.size.sm, color: Neutral[500], marginTop: 2, textTransform: 'capitalize' },
+
+    // Preferences Styles
+    prefRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Neutral[100] },
+    prefLabelContainer: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    prefLabel: { fontSize: 16, color: Neutral[800] },
+    counterContainer: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    counterBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: Blue[50], justifyContent: 'center', alignItems: 'center' },
+    counterText: { fontSize: 18, fontWeight: 'bold', color: Blue[800] },
+    typeChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, backgroundColor: Neutral[100], borderWidth: 1, borderColor: Neutral[200] },
+    typeChipActive: { backgroundColor: Blue[50], borderColor: Blue[600] },
+    typeChipText: { fontSize: 10, color: Neutral[600] },
+    typeChipTextActive: { color: Blue[700], fontWeight: 'bold' },
+    valueText: { fontSize: 16, color: Blue[800], fontWeight: '600' },
+
+    gallerySection: { paddingHorizontal: Spacing.base, marginBottom: Spacing.lg },
+    sectionTitle: { fontSize: Typography.size.sm, fontWeight: Typography.weight.semibold, color: Neutral[500], textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: Spacing.sm, marginLeft: Spacing.lg },
+    photoList: { flexDirection: 'row' },
+    addPhotoButton: { width: 70, height: 70, borderRadius: 12, backgroundColor: Blue[50], justifyContent: 'center', alignItems: 'center', marginRight: 10, borderWidth: 1, borderColor: Blue[200], borderStyle: 'dashed' },
+    photoThumbWrapper: { width: 70, height: 70, borderRadius: 12, marginRight: 10 },
+    photoThumb: { width: '100%', height: '100%', borderRadius: 12 },
+
+    infoCard: { padding: Spacing.lg, marginHorizontal: Spacing.base, marginBottom: Spacing.lg },
+    logoutButton: { alignItems: 'center', padding: Spacing.md, marginBottom: 30 },
+    logoutText: { color: '#EF4444', fontWeight: 'bold' },
 });

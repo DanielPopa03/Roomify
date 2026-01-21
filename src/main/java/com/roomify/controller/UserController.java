@@ -19,6 +19,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.net.MalformedURLException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -28,6 +29,7 @@ public class UserController {
     private final UserService userService;
     private final GeminiService geminiService;
     private final Path videoStorageLocation = Paths.get("uploads/videos");
+    private final Path rootLocation = Paths.get("uploads");
 
     public UserController(UserService userService, GeminiService geminiService) {
         this.userService = userService;
@@ -65,8 +67,8 @@ public class UserController {
     @DeleteMapping("/{id:.+}")
     public ResponseEntity<Void> deleteUser(
             @PathVariable String id,
-            @AuthenticationPrincipal Jwt jwt) {
-        System.out.println("Backend: Deleting user " + id);
+            @AuthenticationPrincipal Jwt jwt
+    ) {
         if (!jwt.getSubject().equals(id)) {
             return ResponseEntity.status(403).build();
         }
@@ -83,15 +85,6 @@ public class UserController {
         return ResponseEntity.ok(Map.of("isTaken", taken));
     }
 
-    // ================================
-    // VIDEO INTERVIEW ENDPOINTS
-    // ================================
-
-    /**
-     * Endpoint A: Analyze Video
-     * Uploads video to local storage and Gemini, returns AI-generated profile
-     * suggestions.
-     */
     @PostMapping(value = "/interview/analyze", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> analyzeInterview(
             @RequestParam("file") MultipartFile file,
@@ -207,6 +200,34 @@ public class UserController {
 
         } catch (MalformedURLException e) {
             return ResponseEntity.internalServerError().build();
+    // --- MISSING ENDPOINT: LANDLORD FEED ---
+    @GetMapping("/feed")
+    public ResponseEntity<List<User>> getTenantFeed(
+            @RequestParam(required = false) Long propertyId,
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        String landlordId = jwt.getSubject();
+        List<User> feed = userService.getTenantFeed(landlordId, propertyId);
+        return ResponseEntity.ok(feed);
+    }
+    // ---------------------------------------
+
+    // --- IMAGE SERVING ---
+    @GetMapping("/images/{filename:.+}")
+    public ResponseEntity<Resource> serveFile(@PathVariable String filename) {
+        try {
+            Path file = rootLocation.resolve(filename);
+            Resource resource = new UrlResource(file.toUri());
+
+            if (resource.exists() || resource.isReadable()) {
+                return ResponseEntity.ok()
+                        .contentType(MediaType.IMAGE_JPEG)
+                        .body(resource);
+            } else {
+                return ResponseEntity.notFound().build();
+            }
+        } catch (MalformedURLException e) {
+            return ResponseEntity.badRequest().build();
         }
     }
 }
