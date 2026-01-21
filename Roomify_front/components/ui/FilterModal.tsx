@@ -56,6 +56,7 @@ export const FilterModal = ({
     // Update filters when modal opens with initial preferences
     useEffect(() => {
         if (visible && initialPreferences) {
+            console.log("initialPreferencesCoord", initialPreferences.searchLatitude, initialPreferences.searchLongitude);
             setFilters({
                 minPrice: initialPreferences.minPrice,
                 maxPrice: initialPreferences.maxPrice,
@@ -345,10 +346,11 @@ export const FilterModal = ({
                         <Text style={styles.sectionTitle}>Search Location & Radius</Text>
                         <View style={styles.locationPickerContainer}>
                             <LocationPicker
+                                initialLocation={filters.searchLatitude != null && filters.searchLongitude != null ? { lat: filters.searchLatitude, lng: filters.searchLongitude } : undefined}
                                 addressValue={addressValue}
+                                radius={filters.searchRadiusKm}
                                 onAddressChange={setAddressValue}
                                 onLocationPicked={handleLocationPicked}
-                                radius={filters.searchRadiusKm}
                             />
                         </View>
                         {(filters.searchLatitude != null && filters.searchLongitude != null) && (
@@ -661,104 +663,3 @@ const styles = StyleSheet.create({
         flex: 1,
     },
 });
-
-// --- PROPERTY MAP MODAL ---
-const PropertyMapModal = ({ visible, onClose, latitude, longitude, address, searchRadius }: any) => {
-    const insets = useSafeAreaInsets();
-    
-    // 1. Safety check: Ensure coordinates exist before rendering map
-    if (!visible || !latitude || !longitude) return null;
-
-    // 2. Parse numbers to ensure JS doesn't crash in WebView
-    const lat = parseFloat(latitude);
-    const lng = parseFloat(longitude);
-    
-    // 3. Radius Logic: Use the preference radius or default to 1km
-    const radiusKm = searchRadius && searchRadius > 0 ? searchRadius : 1;
-    const radiusMeters = radiusKm * 1000;
-
-    const mapHtml = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-          <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-          <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-          <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>
-          <style>
-              body, html, #map { height: 100%; width: 100%; margin: 0; padding: 0; background-color: #f0f0f0; }
-          </style>
-      </head>
-      <body>
-          <div id="map"></div>
-          <script>
-              try {
-                  // Initialize Map
-                  var map = L.map('map').setView([${lat}, ${lng}], 14);
-
-                  // Add Tile Layer
-                  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                      maxZoom: 19,
-                      attribution: '&copy; OpenStreetMap'
-                  }).addTo(map);
-
-                  // Add Center Marker
-                  L.marker([${lat}, ${lng}]).addTo(map);
-
-                  // Add Radius Circle (Dynamic)
-                  L.circle([${lat}, ${lng}], {
-                      color: '#EF4444',       
-                      fillColor: '#EF4444', 
-                      fillOpacity: 0.2,
-                      weight: 1,
-                      radius: ${radiusMeters}         
-                  }).addTo(map);
-                  
-              } catch (e) {
-                  // Catch errors to prevent white screen of death
-                  alert('Map Error: ' + e.message);
-              }
-          </script>
-      </body>
-      </html>
-    `;
-
-    return (
-        <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-            <View style={{ flex: 1, backgroundColor: 'white' }}>
-                <View style={[styles.modalHeader, { paddingTop: Platform.OS === 'ios' ? 20 : 10 }]}>
-                    <Text style={styles.modalTitle}>Location Preview</Text>
-                    <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                        <Ionicons name="close" size={24} color={Neutral[900]} />
-                    </TouchableOpacity>
-                </View>
-                
-                <View style={{ flex: 1, backgroundColor: '#f0f0f0' }}>
-                    {Platform.OS === 'web' ? (
-                        <iframe srcDoc={mapHtml} style={{ width: '100%', height: '100%', border: 'none' }} title="map" />
-                    ) : (
-                        <WebView 
-                            originWhitelist={['*']} 
-                            source={{ 
-                                html: mapHtml, 
-                                // FIX: baseUrl is required for Android to load external scripts/images correctly
-                                baseUrl: Platform.OS === 'android' ? 'file:///android_asset/' : '' 
-                            }} 
-                            style={{ flex: 1 }}
-                            javaScriptEnabled={true}
-                            domStorageEnabled={true}
-                            startInLoadingState={true}
-                            renderLoading={() => <ActivityIndicator style={{position: 'absolute', top: '50%', left: '50%'}} color={Blue[500]} />}
-                        />
-                    )}
-                </View>
-
-                <View style={[styles.modalFooter, { paddingBottom: insets.bottom + 10 }]}>
-                    <Ionicons name="location" size={20} color={Blue[600]} />
-                    <Text style={styles.modalAddress}>{address}</Text>
-                </View>
-            </View>
-        </Modal>
-    );
-};
-
-export { PropertyMapModal };

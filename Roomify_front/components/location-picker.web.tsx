@@ -10,9 +10,9 @@ const LeafletMap = React.lazy(() => import('./LeafletMap'));
 
 interface LocationPickerProps {
     initialLocation?: { lat: number; lng: number };
-    // 👇 NEW: Controlled props
     addressValue: string;
     onAddressChange: (text: string) => void;
+    radius?: number;
     onLocationPicked: (location: { lat: number; lng: number; address?: string }) => void;
 }
 
@@ -20,6 +20,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
                                                                   initialLocation,
                                                                   addressValue,
                                                                   onAddressChange,
+                                                                  radius,
                                                                   onLocationPicked
                                                               }) => {
     const defaultLocation = { lat: 44.4268, lng: 26.1025 };
@@ -29,11 +30,12 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
     const [isClient, setIsClient] = useState(false);
 
     useEffect(() => {
+        console.log("initialLocationWebLocationPicker", initialLocation);
         setIsClient(true);
         if (initialLocation) {
             setPickedLocation(initialLocation);
         }
-    }, [initialLocation]);
+    }, [initialLocation, radius]);
 
     // --- GEOCODING ---
 
@@ -163,9 +165,10 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
                 {isClient && (
                     <Suspense fallback={<View style={styles.loader}><ActivityIndicator /></View>}>
                         <LeafletMap
-                            // Force re-render when initial location changes (e.g. edit mode load)
-                            key={initialLocation ? `map-${initialLocation.lat}-${initialLocation.lng}` : 'map-default'}
+                            // Force re-render when initial location or radius changes
+                            key={initialLocation ? `map-${initialLocation.lat}-${initialLocation.lng}-${radius}` : `map-default-${radius}`}
                             center={mapCenter}
+                            radius={radius}
                             onLocationPicked={handleMapClick}
                         />
                     </Suspense>
