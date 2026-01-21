@@ -1,36 +1,54 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-    View,
-    Text,
-    StyleSheet,
     ActivityIndicator,
     Alert,
+    Keyboard,
+    Platform,
+    StyleSheet,
+    Text,
     TextInput,
     TouchableOpacity,
-    Keyboard
+    View
 } from 'react-native';
 import { WebView } from 'react-native-webview';
-import * as Location from 'expo-location';
-import { Ionicons } from '@expo/vector-icons';
+// Make sure to import your button correctly based on your file structure
+// import { Button } from './ui/Button'; 
+import { Blue, BorderRadius, Neutral, Spacing, Typography } from '@/constants/theme';
 
-import { Button } from './ui/Button';
-import { Neutral, Blue, BorderRadius, Spacing, Typography } from '@/constants/theme';
+// Mock Button for standalone usage if you don't have the import handy
+const Button = ({ title, onPress, disabled, variant }: any) => (
+    <TouchableOpacity 
+        onPress={onPress} 
+        disabled={disabled}
+        style={{
+            padding: 12, 
+            borderRadius: 8, 
+            borderWidth: 1, 
+            borderColor: Blue[600],
+            alignItems: 'center',
+            opacity: disabled ? 0.6 : 1
+        }}>
+        <Text style={{ color: Blue[600], fontWeight: '600' }}>{title}</Text>
+    </TouchableOpacity>
+);
 
 interface LocationPickerProps {
     initialLocation?: { lat: number; lng: number };
-    // 👇 NEW: Controlled props for the address text
     addressValue: string;
     onAddressChange: (text: string) => void;
-
     onLocationPicked: (location: { lat: number; lng: number; address?: string }) => void;
+    radius?: number; // In Kilometers
 }
 
 export const LocationPicker: React.FC<LocationPickerProps> = ({
-                                                                  initialLocation,
-                                                                  addressValue,
-                                                                  onAddressChange,
-                                                                  onLocationPicked
-                                                              }) => {
+    initialLocation,
+    addressValue,
+    onAddressChange,
+    onLocationPicked,
+    radius = 0
+}) => {
     const DEFAULT_LAT = 44.4268;
     const DEFAULT_LNG = 26.1025;
 
@@ -39,22 +57,30 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
     const [isMapReady, setIsMapReady] = useState(false);
     const webViewRef = useRef<WebView>(null);
 
-    // Initial values
+    // Initial values for the HTML generation
     const startLat = initialLocation ? initialLocation.lat : DEFAULT_LAT;
     const startLng = initialLocation ? initialLocation.lng : DEFAULT_LNG;
 
-    // Sync map when initialLocation changes
+    // --- FIX: Update Map when Radius or Picked Location Changes ---
     useEffect(() => {
-        if (initialLocation && isMapReady) {
-            setPickedLocation(initialLocation);
-            webViewRef.current?.injectJavaScript(`
-                if (typeof updateMap === 'function') {
-                    updateMap(${initialLocation.lat}, ${initialLocation.lng});
+        if (isMapReady && pickedLocation) {
+            const lat = pickedLocation.lat;
+            const lng = pickedLocation.lng;
+            // Convert km to meters, handle potential undefined
+            const radiusMeters = (radius || 0) * 1000;
+            console.log("mama ta");
+            // Inject JS to update Leaflet view
+            setTimeout(() => {
+                webViewRef.current?.injectJavaScript(`
+                if (typeof updateView === 'function') {
+                    updateView(${lat}, ${lng}, ${radiusMeters});
                 }
                 true;
-            `);
+                 `);
+            }, 300);
+            
         }
-    }, [initialLocation, isMapReady]);
+    }, [isMapReady, pickedLocation, radius]); // <--- Added radius and pickedLocation here
 
     const mapHtml = `
       <!DOCTYPE html>
@@ -70,6 +96,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
       <body>
         <div id="map"></div>
         <script>
+          // Initialize map
           var map = L.map('map', { zoomControl: false }).setView([${startLat}, ${startLng}], 15);
           
           L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -78,17 +105,57 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
           }).addTo(map);
 
           var marker = L.marker([${startLat}, ${startLng}]).addTo(map);
+          var radiusCircle = null;
+
+          // Initial render logic
+          var startRadius = ${(radius || 0) * 1000};
+          if (startRadius > 0) {
+             radiusCircle = L.circle([${startLat}, ${startLng}], {
+                color: '#EF4444',
+                fillColor: '#EF4444',
+                fillOpacity: 0.2,
+                weight: 1,
+                radius: startRadius
+             }).addTo(map);
+          }
 
           // Handle map taps
           map.on('click', function(e) {
-            marker.setLatLng(e.latlng);
+            // Send coordinates back to React Native
             window.ReactNativeWebView.postMessage(JSON.stringify({ lat: e.latlng.lat, lng: e.latlng.lng }));
           });
 
-          function updateMap(lat, lng) {
+          // Function called by React Native injectJavaScript
+          function updateView(lat, lng, radiusMeters) {
             var newLatLng = new L.LatLng(lat, lng);
+            
+            // Move marker and map
             marker.setLatLng(newLatLng);
-            map.setView(newLatLng, 15);
+            map.setView(newLatLng); // Optional: Keep map centered on pin? Remove if annoying.
+
+            // Handle Circle
+            if (radiusMeters > 0) {
+                if (radiusCircle) {
+                    // Update existing circle
+                    radiusCircle.setLatLng(newLatLng);
+                    radiusCircle.setRadius(radiusMeters);
+                } else {
+                    // Create new circle
+                    radiusCircle = L.circle(newLatLng, {
+                        color: '#EF4444',
+                        fillColor: '#EF4444',
+                        fillOpacity: 0.2,
+                        weight: 1,
+                        radius: radiusMeters
+                    }).addTo(map);
+                }
+            } else {
+                // Remove circle if radius is 0
+                if (radiusCircle) {
+                    map.removeLayer(radiusCircle);
+                    radiusCircle = null;
+                }
+            }
           }
         </script>
       </body>
@@ -127,18 +194,13 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
 
     const updateLocation = async (lat: number, lng: number, shouldReverseGeocode: boolean = true) => {
         setPickedLocation({ lat, lng });
-
-        if (isMapReady) {
-            webViewRef.current?.injectJavaScript(`updateMap(${lat}, ${lng}); true;`);
-        }
-
+        
         let address = undefined;
         if (shouldReverseGeocode) {
-            // If dragging pin, we need to find the address of the new spot
             const result = await reverseGeocodeOSM(lat, lng);
             if (result) {
                 address = result;
-                onAddressChange(result); // Update the search box text
+                onAddressChange(result); 
             }
         }
 
@@ -152,7 +214,6 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
 
         const result = await searchAddressOSM(addressValue);
         if (result) {
-            // Update map + parent state. No need to reverse geocode since we have the address from search
             onAddressChange(result.address);
             updateLocation(result.lat, result.lng, false);
             onLocationPicked({ lat: result.lat, lng: result.lng, address: result.address });
@@ -180,8 +241,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
         }
     };
 
-    // Handle tap on map (received from WebView)
-    const handleWebViewMessage = async (event: any) => {
+    const handleWebViewMessage = (event: any) => {
         try {
             const data = JSON.parse(event.nativeEvent.data);
             if (data.lat && data.lng) {
@@ -199,7 +259,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
                     style={styles.searchInput}
                     placeholder="Search city, street..."
                     placeholderTextColor={Neutral[400]}
-                    value={addressValue} // Controlled by parent
+                    value={addressValue}
                     onChangeText={onAddressChange}
                     onSubmitEditing={searchAddressHandler}
                     returnKeyType="search"
@@ -213,11 +273,16 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
                 <WebView
                     ref={webViewRef}
                     originWhitelist={['*']}
-                    source={{ html: mapHtml }}
+                    source={{ 
+                        html: mapHtml,
+                        baseUrl: Platform.OS === 'android' ? 'file:///android_asset/' : '' 
+                    }}
                     onMessage={handleWebViewMessage}
                     onLoadEnd={() => setIsMapReady(true)}
                     style={styles.map}
                     scrollEnabled={false}
+                    javaScriptEnabled={true}
+                    domStorageEnabled={true}
                 />
             </View>
 

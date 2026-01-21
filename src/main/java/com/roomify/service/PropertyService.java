@@ -5,6 +5,7 @@ import com.roomify.model.*;
 import com.roomify.model.enums.LayoutType;
 import com.roomify.model.enums.PreferredTenantType;
 import com.roomify.repository.MatchRepository;
+import com.roomify.repository.PreferencesRepository;
 import com.roomify.repository.PropertyRepository;
 import com.roomify.repository.UserRepository;
 import org.springframework.data.domain.Page;
@@ -28,6 +29,8 @@ public class PropertyService {
     private final PropertyRepository propertyRepository;
     private final MatchRepository matchRepository;
     private final UserRepository userRepository;
+    private final PreferencesRepository preferencesRepository;
+    private final PreferencesService preferencesService;
     private final GeocodingService geocodingService;
     private final Path rootLocation = Paths.get("uploads");
     private static final int MAX_IMAGES = 7;
@@ -35,10 +38,14 @@ public class PropertyService {
     public PropertyService(PropertyRepository propertyRepository,
                            MatchRepository matchRepository,
                            UserRepository userRepository,
+                           PreferencesRepository preferencesRepository,
+                           PreferencesService preferencesService,
                            GeocodingService geocodingService) {
         this.propertyRepository = propertyRepository;
         this.matchRepository = matchRepository;
         this.userRepository = userRepository;
+        this.preferencesRepository = preferencesRepository;
+        this.preferencesService = preferencesService;
         this.geocodingService = geocodingService;
         initStorage();
     }
@@ -82,7 +89,30 @@ public class PropertyService {
             return propertyRepository.findAll(PageRequest.of(0, 20)).getContent();
         }
 
-        return propertyRepository.findFeedForTenant(userId);
+        // Get user preferences if they exist
+        Optional<Preferences> userPreferences = preferencesRepository.findByUserId(userId);
+
+        List<Property> allFeed = propertyRepository.findFeedForTenant(userId);
+
+        // Filter by preferences if they exist
+        if (userPreferences.isPresent()) {
+            Preferences prefs = userPreferences.get();
+            return allFeed.stream()
+                    .filter(property -> preferencesService.propertyMatchesPreferences(
+                            property.getPrice().doubleValue(),
+                            property.getSurface(),
+                            property.getNumberOfRooms(),
+                            property.getLayoutType() != null ? property.getLayoutType().name() : null,
+                            property.getPetFriendly(),
+                            property.getSmokerFriendly(),
+                            property.getLatitude(),
+                            property.getLongitude(),
+                            prefs
+                    ))
+                    .collect(Collectors.toList());
+        }
+
+        return allFeed;
     }
 
     @Transactional

@@ -20,11 +20,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 
-import { SwipeButtons, EmptyState, ImageGalleryModal } from '@/components/ui';
+import { SwipeButtons, EmptyState, ImageGalleryModal, FilterModal} from '@/components/ui';
 import { Blue, Neutral, Typography, Spacing, BorderRadius, Shadows } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { usePreferences } from '@/hooks/usePreferences';
 // 1. Import from your shared types
-import { Property, MatchResponse } from '@/constants/types';
+import { Property, MatchResponse, Preferences } from '@/constants/types';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
@@ -172,11 +173,13 @@ export default function TenantBrowseScreen() {
     // Destructure logout so we can sign user out on Provider Mismatch
     const { getAccessToken, logout } = useAuth();
     const router = useRouter();
+    const { preferences, savePreferences, getPreferences } = usePreferences();
 
     // State
     const [properties, setProperties] = useState<Property[]>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
+    const [isFilterModalVisible, setIsFilterModalVisible] = useState(false);
 
     const [isGalleryVisible, setIsGalleryVisible] = useState(false);
     const [isMapVisible, setIsMapVisible] = useState(false);
@@ -191,7 +194,12 @@ export default function TenantBrowseScreen() {
 
     const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
 
-    // --- 4. FETCH FEED (Updated with 409 Handling) ---
+    // Load user preferences on mount
+    useEffect(() => {
+        getPreferences();
+    }, []);
+
+    // --- 4. FETCH FEED (Updated with 409 Handling & Preferences Filter) ---
     const fetchFeed = useCallback(async () => {
         setIsLoading(true);
         try {
@@ -257,6 +265,13 @@ export default function TenantBrowseScreen() {
     useEffect(() => {
         fetchFeed();
     }, [fetchFeed]);
+
+    // Handle applying filters
+    const handleApplyFilters = async (newPreferences: Preferences) => {
+        await savePreferences(newPreferences);
+        // Refresh the feed with new filters
+        fetchFeed();
+    };
 
     // --- 5. SWIPE LOGIC ---
     const swipeCard = useCallback((direction: 'left' | 'right') => {
@@ -340,12 +355,26 @@ export default function TenantBrowseScreen() {
     if (!currentProperty) {
         return (
             <View style={[styles.container, { paddingTop: insets.top }]}>
+                <TouchableOpacity 
+                    style={styles.filterButton} 
+                    onPress={() => setIsFilterModalVisible(true)}
+                    activeOpacity={0.7}
+                >
+                    <Ionicons name="funnel" size={20} color={Blue[600]} />
+                    <Text style={styles.filterButtonText}>Filter</Text>
+                </TouchableOpacity>
                 <EmptyState
                     icon="home-outline"
                     title="No more properties"
-                    message="Check back later for new listings!"
-                    actionLabel="Refresh"
-                    onAction={() => { setProperties([]); fetchFeed(); }}
+                    message="Try updating your filters to see more properties, or check back later!"
+                    actionLabel="Update Filters"
+                    onAction={() => setIsFilterModalVisible(true)}
+                />
+                <FilterModal
+                    visible={isFilterModalVisible}
+                    onClose={() => setIsFilterModalVisible(false)}
+                    initialPreferences={preferences || undefined}
+                    onApplyFilters={handleApplyFilters}
                 />
             </View>
         );
@@ -353,6 +382,16 @@ export default function TenantBrowseScreen() {
 
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
+            {/* Filter Button */}
+            <TouchableOpacity 
+                style={styles.filterButton} 
+                onPress={() => setIsFilterModalVisible(true)}
+                activeOpacity={0.7}
+            >
+                <Ionicons name="funnel" size={20} color={Blue[600]} />
+                <Text style={styles.filterButtonText}>Filter</Text>
+            </TouchableOpacity>
+
             <View style={styles.cardContainer}>
 
                 {/* BACKGROUND CARD */}
@@ -411,6 +450,13 @@ export default function TenantBrowseScreen() {
                     />
                 </>
             )}
+
+            <FilterModal
+                visible={isFilterModalVisible}
+                onClose={() => setIsFilterModalVisible(false)}
+                initialPreferences={preferences || undefined}
+                onApplyFilters={handleApplyFilters}
+            />
         </View>
     );
 }
@@ -418,6 +464,25 @@ export default function TenantBrowseScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: Neutral[50] },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    filterButton: {
+        position: 'absolute',
+        top: Spacing.md,
+        right: Spacing.md,
+        zIndex: 100,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'white',
+        paddingHorizontal: Spacing.md,
+        paddingVertical: Spacing.sm,
+        borderRadius: BorderRadius.lg,
+        gap: Spacing.xs,
+        ...Shadows.md,
+    },
+    filterButtonText: {
+        fontSize: Typography.sm,
+        fontWeight: '600',
+        color: Blue[600],
+    },
     cardContainer: {
         flex: 1,
         alignItems: 'center',
