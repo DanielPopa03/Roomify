@@ -87,6 +87,8 @@ public class User {
                 !firstName.equals("New User") && // Force them to change the default name
                 phoneNumber != null && !phoneNumber.isBlank() &&
                 email != null && !email.isBlank();
+    }
+
     public boolean getProfileComplete() {
         return this.role != null
                 && this.phoneNumber != null && !this.phoneNumber.isBlank()

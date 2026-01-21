@@ -200,9 +200,12 @@ public class UserController {
 
         } catch (MalformedURLException e) {
             return ResponseEntity.internalServerError().build();
+        }
+    }
+
     // --- MISSING ENDPOINT: LANDLORD FEED ---
     @GetMapping("/feed")
-    public ResponseEntity<List<User>> getTenantFeed(
+    public ResponseEntity<List<User>> getTenantFeed (
             @RequestParam(required = false) Long propertyId,
             @AuthenticationPrincipal Jwt jwt
     ) {

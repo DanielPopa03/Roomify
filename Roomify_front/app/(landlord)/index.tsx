@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect, memo } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo, memo } from 'react';
 import {
     View,
     Text,
@@ -10,13 +10,15 @@ import {
     TouchableOpacity,
     ActivityIndicator,
     ScrollView,
-    Modal
+    Modal,
+    Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
 
+// Make sure these paths exist in your project
 import { SwipeButtons, EmptyState, ImageGalleryModal } from '@/components/ui';
 import { Blue, Neutral, Spacing, BorderRadius, Shadows } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
@@ -51,11 +53,13 @@ const MatchOverlay = ({ visible, tenant, propertyImage, onClose, onChat }: any) 
 
     useEffect(() => {
         if (visible) {
+            // Reset animations
             scaleAnim.setValue(0);
             slideLeft.setValue(-300);
             slideRight.setValue(300);
             fadeAnim.setValue(0);
 
+            // Play animations
             Animated.sequence([
                 Animated.spring(scaleAnim, { toValue: 1, friction: 4, useNativeDriver: true }),
                 Animated.parallel([
@@ -116,18 +120,12 @@ const TenantCard = memo(({ tenant, isTopCard, onOpenGallery, propertyRequirement
     const photoCount = tenant.photos ? tenant.photos.length : 0;
 
     // --- LOGIC: Compare Tenant vs Property ---
-    // 1. Smoker Logic
-    // Mismatch: Property is non-smoking (false), but Tenant IS smoker (true)
     const smokerWarning = propertyRequirements?.smokerFriendly === false && tenant.isSmoker === true;
     const smokerMatch = propertyRequirements?.smokerFriendly === false && tenant.isSmoker === false;
 
-    // 2. Pet Logic
-    // Mismatch: Property is no-pets (false), but Tenant HAS pets (true)
     const petWarning = propertyRequirements?.petFriendly === false && tenant.hasPets === true;
     const petMatch = propertyRequirements?.petFriendly === false && tenant.hasPets === false;
 
-    // 3. Tenant Type Logic
-    // Match: Tenant's type is in the property's preference list
     const typeMatch = propertyRequirements?.preferredTenants?.includes(tenant.tenantType);
 
     return (
@@ -149,9 +147,7 @@ const TenantCard = memo(({ tenant, isTopCard, onOpenGallery, propertyRequirement
                         <Text style={styles.ageText}>  {tenant.age ? `, ${tenant.age}` : ''}</Text>
                     </Text>
 
-                    {/* Primary Tags on Image */}
                     <View style={{ flexDirection: 'row', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                        {/* Highlight Tenant Type if it matches */}
                         {tenant.tenantType && (
                             <View style={[styles.badgeRow, typeMatch && styles.badgeRowMatch]}>
                                 <Ionicons name="person" size={12} color="#FFF" />
@@ -171,7 +167,7 @@ const TenantCard = memo(({ tenant, isTopCard, onOpenGallery, propertyRequirement
             <View style={styles.contentWrapper}>
                 <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={isTopCard} scrollEnabled={isTopCard}>
 
-                    {/* --- WARNINGS --- */}
+                    {/* Warnings */}
                     {(smokerWarning || petWarning) && (
                         <View style={styles.warningContainer}>
                             <Text style={styles.warningHeader}>⚠️ Potential Mismatches</Text>
@@ -195,9 +191,8 @@ const TenantCard = memo(({ tenant, isTopCard, onOpenGallery, propertyRequirement
                     <Text style={styles.sectionTitle}>About Me</Text>
                     <Text style={styles.bioText}>{tenant.bio || "No bio provided yet."}</Text>
 
-                    {/* --- POSITIVE MATCHES --- */}
+                    {/* Positive Matches */}
                     <View style={styles.statsRow}>
-                        {/* Smoker Badge */}
                         {smokerMatch ? (
                             <View style={[styles.tag, styles.tagMatch]}>
                                 <Ionicons name="leaf" size={14} color="#059669" />
@@ -207,7 +202,6 @@ const TenantCard = memo(({ tenant, isTopCard, onOpenGallery, propertyRequirement
                             !tenant.isSmoker && <View style={styles.tag}><Text style={styles.tagText}>Non-Smoker</Text></View>
                         )}
 
-                        {/* Pet Badge */}
                         {petMatch ? (
                             <View style={[styles.tag, styles.tagMatch]}>
                                 <Ionicons name="paw" size={14} color="#059669" />
@@ -217,7 +211,6 @@ const TenantCard = memo(({ tenant, isTopCard, onOpenGallery, propertyRequirement
                             !tenant.hasPets && <View style={styles.tag}><Text style={styles.tagText}>No Pets</Text></View>
                         )}
 
-                        {/* Minimum Rooms they want */}
                         {tenant.minRooms > 0 && (
                             <View style={styles.tag}>
                                 <Ionicons name="grid-outline" size={14} color={Blue[600]} />
@@ -248,23 +241,22 @@ export default function LandlordHomeScreen() {
     const [matchedTenant, setMatchedTenant] = useState<any>(null);
     const [currentMatchId, setCurrentMatchId] = useState<number | null>(null);
 
-    const [position, setPosition] = useState(new Animated.ValueXY());
-    const positionRef = useRef(position);
+    const [position] = useState(new Animated.ValueXY());
     const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
 
-    useEffect(() => { positionRef.current = position; }, [position]);
+    // Initialize property selection
     useEffect(() => {
         if (!selectedPropertyId && properties && properties.length > 0) {
             setSelectedPropertyId(properties[0].id.toString());
         }
     }, [properties, selectedPropertyId]);
 
+    // Fetch Feed
     const fetchFeed = useCallback(async () => {
         if (!selectedPropertyId) return;
         setIsLoadingFeed(true);
         try {
             const token = await getAccessToken();
-            // Backend endpoint updates user history
             const response = await fetch(`http://${MY_IP}:8080/user/feed?propertyId=${selectedPropertyId}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
@@ -275,25 +267,34 @@ export default function LandlordHomeScreen() {
             } else {
                 setTenants([]);
             }
-        } catch (error) { setTenants([]); }
-        finally { setIsLoadingFeed(false); }
+        } catch (error) {
+            setTenants([]);
+            console.error(error);
+        } finally {
+            setIsLoadingFeed(false);
+        }
     }, [getAccessToken, MY_IP, selectedPropertyId]);
 
     useFocusEffect(
-        useCallback(() => { refetchProperties(); if (selectedPropertyId) fetchFeed(); }, [selectedPropertyId])
+        useCallback(() => {
+            refetchProperties();
+            if (selectedPropertyId) fetchFeed();
+        }, [selectedPropertyId])
     );
 
+    // Swipe Logic
     const swipeCard = useCallback((direction: 'left' | 'right') => {
         const x = direction === 'right' ? SCREEN_WIDTH + 100 : -SCREEN_WIDTH - 100;
         const tenantToSwipe = tenants[currentIndex];
 
-        Animated.spring(positionRef.current, {
+        Animated.spring(position, {
             toValue: { x, y: -50 },
             useNativeDriver: false,
-            speed: 100
+            speed: 40 // Slower speed for better feel
         }).start(async () => {
+            // Update index first to make UI snappy
             setCurrentIndex(prev => prev + 1);
-            setPosition(new Animated.ValueXY());
+            position.setValue({ x: 0, y: 0 }); // Reset position for NEXT card
 
             if (!tenantToSwipe || !selectedPropertyId) return;
 
@@ -303,7 +304,7 @@ export default function LandlordHomeScreen() {
                 const body = JSON.stringify({ tenantId: tenantToSwipe.id, propertyId: parseInt(selectedPropertyId) });
 
                 if (direction === 'right') {
-                    // INVITE / LIKE
+                    // INVITE
                     const response = await fetch(`http://${MY_IP}:8080/api/matches/landlord/invite`, { method: 'POST', headers, body });
                     if (response.ok) {
                         const data = await response.json();
@@ -314,42 +315,62 @@ export default function LandlordHomeScreen() {
                         }
                     }
                 } else {
-                    // PASS / DISLIKE (Soft Penalty)
+                    // PASS
                     await fetch(`http://${MY_IP}:8080/api/matches/landlord/pass`, { method: 'POST', headers, body });
                 }
-            } catch (error) { console.error(error); }
+            } catch (error) {
+                console.error("Error processing swipe:", error);
+            }
         });
-    }, [tenants, currentIndex, selectedPropertyId, getAccessToken, MY_IP]);
+    }, [tenants, currentIndex, selectedPropertyId, getAccessToken, MY_IP, position]);
 
     const resetPosition = useCallback(() => {
-        Animated.spring(positionRef.current, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
-    }, []);
+        Animated.spring(position, {
+            toValue: { x: 0, y: 0 },
+            useNativeDriver: false,
+            friction: 4
+        }).start();
+    }, [position]);
 
-    const panResponder = useRef(
-        PanResponder.create({
-            onStartShouldSetPanResponder: () => true,
-            onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 10,
-            onPanResponderMove: (_, gesture) => { positionRef.current.setValue({ x: gesture.dx, y: gesture.dy }); },
-            onPanResponderRelease: (_, gesture) => {
-                if (gesture.dx > SWIPE_THRESHOLD) swipeCard('right');
-                else if (gesture.dx < -SWIPE_THRESHOLD) swipeCard('left');
-                else resetPosition();
-            },
-        })
-    ).current;
+    // --- CRITICAL FIX: Use useMemo for PanResponder to handle state updates ---
+    const panResponder = useMemo(() => PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 10,
+        onPanResponderMove: (_, gesture) => {
+            position.setValue({ x: gesture.dx, y: gesture.dy });
+        },
+        onPanResponderRelease: (_, gesture) => {
+            if (gesture.dx > SWIPE_THRESHOLD) {
+                swipeCard('right');
+            } else if (gesture.dx < -SWIPE_THRESHOLD) {
+                swipeCard('left');
+            } else {
+                resetPosition();
+            }
+        },
+    }), [currentIndex, tenants, swipeCard, resetPosition, position]);
 
+    // Animation Interpolations
+    const rotate = position.x.interpolate({
+        inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2],
+        outputRange: ['-10deg', '0deg', '10deg'],
+        extrapolate: 'clamp'
+    });
+
+    const nextCardScale = position.x.interpolate({
+        inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2],
+        outputRange: [1, 0.95, 1],
+        extrapolate: 'clamp'
+    });
+
+    const likeOpacity = position.x.interpolate({ inputRange: [0, SCREEN_WIDTH / 4], outputRange: [0, 1] });
+    const nopeOpacity = position.x.interpolate({ inputRange: [-SCREEN_WIDTH / 4, 0], outputRange: [1, 0] });
+
+    // Current State Helpers
     const currentTenant = tenants[currentIndex];
     const nextTenant = tenants[currentIndex + 1];
-
-    const rotate = position.x.interpolate({ inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2], outputRange: ['-10deg', '0deg', '10deg'], extrapolate: 'clamp' });
-    const nextCardScale = position.x.interpolate({ inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2], outputRange: [1, 0.95, 1], extrapolate: 'clamp' });
-    const likeOpacity = position.x.interpolate({ inputRange: [0, SCREEN_WIDTH/4], outputRange: [0, 1] });
-    const nopeOpacity = position.x.interpolate({ inputRange: [-SCREEN_WIDTH/4, 0], outputRange: [1, 0] });
-
-    // Helper data
     const galleryImages = currentTenant?.photos?.map((p: string) => getImageUrl(p)) || (currentTenant?.picture ? [getImageUrl(currentTenant.picture)] : []);
 
-    // Find current property to pass requirements to card
     const currentPropertyReqs = properties?.find((p: any) => p.id.toString() === selectedPropertyId);
     const propertyImage = currentPropertyReqs?.images?.[0] ? getImageUrl(currentPropertyReqs.images[0].url) : 'https://via.placeholder.com/150';
 
@@ -366,9 +387,15 @@ export default function LandlordHomeScreen() {
                         <TouchableOpacity
                             key={p.id}
                             style={[styles.propertyChip, selectedPropertyId === p.id.toString() && styles.propertyChipActive]}
-                            onPress={() => setSelectedPropertyId(p.id.toString())}
+                            onPress={() => {
+                                setSelectedPropertyId(p.id.toString());
+                                setTenants([]); // Clear old tenants immediately
+                                setCurrentIndex(0);
+                            }}
                         >
-                            <Text style={[styles.propertyChipText, selectedPropertyId === p.id.toString() && styles.propertyChipTextActive]}>{p.title}</Text>
+                            <Text style={[styles.propertyChipText, selectedPropertyId === p.id.toString() && styles.propertyChipTextActive]}>
+                                {p.title}
+                            </Text>
                         </TouchableOpacity>
                     ))}
                     <TouchableOpacity style={styles.addPropertyChip} onPress={() => router.push('/(landlord)/add-property')}>
@@ -382,13 +409,14 @@ export default function LandlordHomeScreen() {
                 <EmptyState
                     icon="people-outline"
                     title="No new candidates"
-                    description={!selectedPropertyId ? "Select a property." : "We couldn't find any new tenants."}
+                    description={!selectedPropertyId ? "Select a property above." : "We couldn't find any new tenants."}
                     actionLabel="Refresh Feed"
                     onAction={fetchFeed}
                 />
             ) : (
                 <>
                     <View style={styles.cardContainer}>
+                        {/* Next Card (Background) */}
                         {nextTenant && (
                             <Animated.View style={[styles.card, styles.nextCard, { transform: [{ scale: nextCardScale }] }]}>
                                 <TenantCard
@@ -399,6 +427,8 @@ export default function LandlordHomeScreen() {
                                 />
                             </Animated.View>
                         )}
+
+                        {/* Top Card (Foreground + Gestures) */}
                         <Animated.View
                             style={[styles.card, { transform: [{ translateX: position.x }, { translateY: position.y }, { rotate }] }]}
                             {...panResponder.panHandlers}
@@ -409,6 +439,8 @@ export default function LandlordHomeScreen() {
                                 onOpenGallery={() => setIsGalleryVisible(true)}
                                 propertyRequirements={currentPropertyReqs}
                             />
+
+                            {/* Swipe Indicators */}
                             <Animated.View style={[styles.indicator, styles.inviteIndicator, { opacity: likeOpacity }]}>
                                 <Text style={styles.indicatorTextInvite}>INVITE</Text>
                             </Animated.View>
@@ -418,12 +450,13 @@ export default function LandlordHomeScreen() {
                         </Animated.View>
                     </View>
 
-                    {/* BUTTONS */}
-                    <SwipeButtons onInterested={() => swipeCard('right')} onNotInterested={() => swipeCard('left')} />
+                    <SwipeButtons
+                        onInterested={() => swipeCard('right')}
+                        onNotInterested={() => swipeCard('left')}
+                    />
                 </>
             )}
 
-            {/* MODALS */}
             <ImageGalleryModal visible={isGalleryVisible} images={galleryImages} onClose={() => setIsGalleryVisible(false)} />
 
             <MatchOverlay
@@ -480,7 +513,7 @@ const styles = StyleSheet.create({
     nameText: { fontSize: 28, fontWeight: 'bold', color: '#FFFFFF', textShadowColor: 'rgba(0,0,0,0.3)', textShadowOffset: {width:0, height:1}, textShadowRadius: 3 },
     ageText: { fontSize: 22, fontWeight: '400' },
     badgeRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.2)', alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, gap: 4 },
-    badgeRowMatch: { backgroundColor: '#10B981' }, // Highlighting tenant type match
+    badgeRowMatch: { backgroundColor: '#10B981' },
     badgeText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
 
     // Content Section
