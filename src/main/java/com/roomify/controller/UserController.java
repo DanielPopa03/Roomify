@@ -35,7 +35,7 @@ public class UserController {
     private final Path videoStorageLocation = Paths.get("uploads/videos");
     private final Path rootLocation = Paths.get("uploads");
 
-    public UserController(UserService userService, PreferencesService preferencesService) {
+    public UserController(UserService userService, PreferencesService preferencesService, GeminiService geminiService) {
         this.userService = userService;
         this.preferencesService = preferencesService;
         this.geminiService = geminiService;
