@@ -1,9 +1,11 @@
 package com.roomify.controller;
 
+import com.roomify.model.Preferences;
+import com.roomify.model.User;
+import com.roomify.service.PreferencesService;
 import com.roomify.dto.InterviewAnalysisResponse;
 import com.roomify.dto.InterviewConfirmationRequest;
 import com.roomify.dto.UserProfileSuggestion;
-import com.roomify.model.User;
 import com.roomify.service.GeminiService;
 import com.roomify.service.UserService;
 import org.springframework.core.io.Resource;
@@ -21,18 +23,21 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/user")
 public class UserController {
 
     private final UserService userService;
+    private final PreferencesService preferencesService;
     private final GeminiService geminiService;
     private final Path videoStorageLocation = Paths.get("uploads/videos");
     private final Path rootLocation = Paths.get("uploads");
 
-    public UserController(UserService userService, GeminiService geminiService) {
+    public UserController(UserService userService, PreferencesService preferencesService) {
         this.userService = userService;
+        this.preferencesService = preferencesService;
         this.geminiService = geminiService;
     }
 
@@ -85,6 +90,31 @@ public class UserController {
         return ResponseEntity.ok(Map.of("isTaken", taken));
     }
 
+    @PostMapping("/preferences")
+    public ResponseEntity<Preferences> savePreferences(
+            @RequestBody Preferences preferences,
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        String userId = jwt.getSubject();
+        Preferences savedPreferences = preferencesService.savePreferences(userId, preferences);
+        return ResponseEntity.ok(savedPreferences);
+    }
+
+    @GetMapping("/preferences")
+    public ResponseEntity<Preferences> getPreferences(@AuthenticationPrincipal Jwt jwt) {
+        String userId = jwt.getSubject();
+        Optional<Preferences> preferences = preferencesService.getPreferences(userId);
+        return preferences
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping("/preferences")
+    public ResponseEntity<Void> deletePreferences(@AuthenticationPrincipal Jwt jwt) {
+        String userId = jwt.getSubject();
+        preferencesService.deletePreferences(userId);
+        return ResponseEntity.noContent().build();
+    }
     @PostMapping(value = "/interview/analyze", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> analyzeInterview(
             @RequestParam("file") MultipartFile file,

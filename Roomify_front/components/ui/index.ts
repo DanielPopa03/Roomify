@@ -10,6 +10,7 @@ export { ChatBubble } from './ChatBubble';
 export { ConversationItem } from './ConversationItem';
 export { EmptyState } from './EmptyState';
 export { FilterButton } from './FilterButton';
+export { FilterModal, PropertyMapModal } from './FilterModal';
 export { Header } from './Header';
 export { ImageCarousel } from './ImageCarousel';
 export { ImageGalleryModal } from './ImageGalleryModal';

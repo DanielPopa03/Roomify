@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Circle, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
@@ -15,6 +15,7 @@ L.Icon.Default.mergeOptions({
 
 interface LeafletMapProps {
     center: { lat: number; lng: number };
+    radius?: number;
     onLocationPicked: (lat: number, lng: number) => void;
 }
 
@@ -35,7 +36,9 @@ const MapRecenter = ({ lat, lng }: { lat: number; lng: number }) => {
     return null;
 };
 
-const LeafletMap: React.FC<LeafletMapProps> = ({ center, onLocationPicked }) => {
+const LeafletMap: React.FC<LeafletMapProps> = ({ center, radius, onLocationPicked }) => {
+    useEffect(() => {}, [radius, center])
+    console.log(radius, "a primit harta", center);
     return (
         <View style={styles.mapContainer}>
             <MapContainer
@@ -49,6 +52,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({ center, onLocationPicked }) => 
                 />
                 <MapClickHandler onLocationPicked={onLocationPicked} />
                 <Marker position={[center.lat, center.lng]} />
+                {radius && <Circle center={[center.lat, center.lng]} radius={radius*1000} pathOptions={{ color: '#00a2ff', fillColor: '#00a2ff', fillOpacity: 0.2, weight: 1 }} />}
                 <MapRecenter lat={center.lat} lng={center.lng} />
             </MapContainer>
         </View>

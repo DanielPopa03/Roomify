@@ -21,6 +21,7 @@ interface LocationPickerProps {
     // 👇 NEW: Controlled props for the address text
     addressValue: string;
     onAddressChange: (text: string) => void;
+    radius?: number;
 
     onLocationPicked: (location: { lat: number; lng: number; address?: string }) => void;
 }
@@ -29,7 +30,8 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
                                                                   initialLocation,
                                                                   addressValue,
                                                                   onAddressChange,
-                                                                  onLocationPicked
+                                                                  radius,
+                                                                  onLocationPicked,
                                                               }) => {
     const DEFAULT_LAT = 44.4268;
     const DEFAULT_LNG = 26.1025;
@@ -56,6 +58,20 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
         }
     }, [initialLocation, isMapReady]);
 
+    // Update circle radius when it changes
+    useEffect(() => {
+        if (isMapReady && radius !== undefined) {
+            webViewRef.current?.injectJavaScript(`
+                if (radiusCircle) {
+                    radiusCircle.setRadius(${radius});
+                } else if (typeof updateCircle === 'function') {
+                    updateCircle(${radius});
+                }
+                true;
+            `);
+        }
+    }, [radius, isMapReady]);
+
     const mapHtml = `
       <!DOCTYPE html>
       <html>
@@ -78,6 +94,13 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
           }).addTo(map);
 
           var marker = L.marker([${startLat}, ${startLng}]).addTo(map);
+          var radiusCircle = ${radius ? `L.circle([${startLat}, ${startLng}], {
+            color: '#7FFFD4',
+            fillColor: '#7FFFD4',
+            fillOpacity: 0.2,
+            weight: 1,
+            radius: ${radius*1000}
+          }).addTo(map)` : 'null'};
 
           // Handle map taps
           map.on('click', function(e) {
@@ -88,7 +111,23 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
           function updateMap(lat, lng) {
             var newLatLng = new L.LatLng(lat, lng);
             marker.setLatLng(newLatLng);
+            ${radius ? 'radiusCircle.setLatLng(newLatLng);' : ''}
             map.setView(newLatLng, 15);
+          }
+
+          function updateCircle(newRadius) {
+            if (!radiusCircle && newRadius) {
+              var currentPos = marker.getLatLng();
+              radiusCircle = L.circle(currentPos, {
+                color: '#7FFFD4',
+                fillColor: '#7FFFD4',
+                fillOpacity: 0.2,
+                weight: 1,
+                radius: newRadius
+              }).addTo(map);
+            } else if (radiusCircle && newRadius) {
+              radiusCircle.setRadius(newRadius);
+            }
           }
         </script>
       </body>

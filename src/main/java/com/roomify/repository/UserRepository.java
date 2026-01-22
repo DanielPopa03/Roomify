@@ -20,6 +20,7 @@ public interface UserRepository extends JpaRepository<User, String> {
     Optional<User> findByEmailFlexible(@Param("email") String email);
 
     Optional<User> findById(String id);
+    Optional<User> findByEmail(String email);
     List<User> findByRole_Name(String roleName);
     List<User> findByRole_NameAndIdNotIn(String roleName, List<String> ids);
 

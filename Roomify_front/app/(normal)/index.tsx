@@ -20,10 +20,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 
-import { SwipeButtons, EmptyState, ImageGalleryModal } from '@/components/ui';
+import { SwipeButtons, EmptyState, ImageGalleryModal, FilterModal} from '@/components/ui';
 import { Blue, Neutral, Typography, Spacing, BorderRadius, Shadows } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
-import { Property, MatchResponse } from '@/constants/types';
+import { usePreferences } from '@/hooks/usePreferences';
+import { Property, MatchResponse, Preferences } from '@/constants/types';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
@@ -277,10 +278,12 @@ export default function TenantBrowseScreen() {
     const insets = useSafeAreaInsets();
     const { getAccessToken, logout, user, dbUser } = useAuth(); // Get dbUser preferences
     const router = useRouter();
+    const { preferences, savePreferences, getPreferences } = usePreferences();
 
     const [properties, setProperties] = useState<Property[]>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
+    const [isFilterModalVisible, setIsFilterModalVisible] = useState(false);
 
     const [isGalleryVisible, setIsGalleryVisible] = useState(false);
     const [isMapVisible, setIsMapVisible] = useState(false);
@@ -298,6 +301,12 @@ export default function TenantBrowseScreen() {
 
     const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
 
+    // Load user preferences on mount
+    useEffect(() => {
+        getPreferences();
+    }, []);
+
+    // --- 4. FETCH FEED (Updated with 409 Handling & Preferences Filter) ---
     const fetchFeed = useCallback(async () => {
         setIsLoading(true);
         try {
@@ -329,6 +338,14 @@ export default function TenantBrowseScreen() {
 
     useEffect(() => { fetchFeed(); }, [fetchFeed]);
 
+    // Handle applying filters
+    const handleApplyFilters = async (newPreferences: Preferences) => {
+        await savePreferences(newPreferences);
+        // Refresh the feed with new filters
+        fetchFeed();
+    };
+
+    // --- 5. SWIPE LOGIC ---
     const swipeCard = useCallback((direction: 'left' | 'right') => {
         const x = direction === 'right' ? SCREEN_WIDTH + 100 : -SCREEN_WIDTH - 100;
         const currentProp = properties[currentIndex];
@@ -404,17 +421,89 @@ export default function TenantBrowseScreen() {
 
     if (isLoading && properties.length === 0) return <ActivityIndicator style={styles.centered} size="large" color={Blue[500]} />;
 
-    return (
-        <View style={[styles.container, { paddingTop: insets.top }]}>
-            {!currentProperty ? (
+    if (!currentProperty) {
+        return (
+            <View style={[styles.container, { paddingTop: insets.top }]}>
+                <TouchableOpacity 
+                    style={styles.filterButton} 
+                    onPress={() => setIsFilterModalVisible(true)}
+                    activeOpacity={0.7}
+                >
+                    <Ionicons name="funnel" size={20} color={Blue[600]} />
+                    <Text style={styles.filterButtonText}>Filter</Text>
+                </TouchableOpacity>
                 <EmptyState
                     icon="home-outline"
                     title="No more properties"
-                    message="Check back later for new listings!"
-                    actionLabel="Refresh"
-                    onAction={() => { setProperties([]); fetchFeed(); }}
+                    message="Try updating your filters to see more properties, or check back later!"
+                    actionLabel="Update Filters"
+                    onAction={() => setIsFilterModalVisible(true)}
                 />
-            ) : (
+                <FilterModal
+                    visible={isFilterModalVisible}
+                    onClose={() => setIsFilterModalVisible(false)}
+                    initialPreferences={preferences || undefined}
+                    onApplyFilters={handleApplyFilters}
+                />
+            </View>
+        );
+    }
+
+    return (
+        <View style={[styles.container, { paddingTop: insets.top }]}>
+            {/* Filter Button */}
+            <TouchableOpacity 
+                style={styles.filterButton} 
+                onPress={() => setIsFilterModalVisible(true)}
+                activeOpacity={0.7}
+            >
+                <Ionicons name="funnel" size={20} color={Blue[600]} />
+                <Text style={styles.filterButtonText}>Filter</Text>
+            </TouchableOpacity>
+
+            <View style={styles.cardContainer}>
+
+                {/* BACKGROUND CARD */}
+                {nextProperty && (
+                    <Animated.View
+                        key={nextProperty.id}
+                        style={[styles.card, styles.nextCard, { transform: [{ scale: nextCardScale }], opacity: 1 }]}
+                    >
+                        <PropertyCard
+                            property={nextProperty}
+                            isTopCard={false}
+                            onOpenGallery={() => {}}
+                            onOpenMap={() => {}}
+                        />
+                    </Animated.View>
+                )}
+
+                {/* FOREGROUND CARD */}
+                <Animated.View
+                    key={currentProperty.id}
+                    style={[styles.card, { transform: [{ translateX: position.x }, { translateY: position.y }, { rotate }] }]}
+                    {...panResponder.panHandlers}
+                >
+                    <PropertyCard
+                        property={currentProperty}
+                        isTopCard={true}
+                        onOpenGallery={() => setIsGalleryVisible(true)}
+                        onOpenMap={() => setIsMapVisible(true)}
+                    />
+
+                    {/* Like/Nope Indicators */}
+                    <Animated.View style={[styles.indicator, styles.interestedIndicator, { opacity: likeOpacity }]}>
+                        <Ionicons name="checkmark-circle" size={64} color="#10B981" />
+                    </Animated.View>
+                    <Animated.View style={[styles.indicator, styles.notInterestedIndicator, { opacity: nopeOpacity }]}>
+                        <Ionicons name="close-circle" size={64} color="#EF4444" />
+                    </Animated.View>
+                </Animated.View>
+
+            </View>
+            <SwipeButtons onInterested={handleInterested} onNotInterested={handleNotInterested} />
+
+            {currentProperty && (
                 <>
                     <View style={styles.cardContainer}>
                         {nextProperty && (
@@ -452,6 +541,12 @@ export default function TenantBrowseScreen() {
                 </>
             )}
 
+            <FilterModal
+                visible={isFilterModalVisible}
+                onClose={() => setIsFilterModalVisible(false)}
+                initialPreferences={preferences || undefined}
+                onApplyFilters={handleApplyFilters}
+             />
             <ImageGalleryModal
                 images={currentProperty?.images || matchedProperty?.images || []}
                 visible={isGalleryVisible}
@@ -488,6 +583,25 @@ export default function TenantBrowseScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: Neutral[50] },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    filterButton: {
+        position: 'absolute',
+        top: Spacing.md,
+        right: Spacing.md,
+        zIndex: 100,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'white',
+        paddingHorizontal: Spacing.md,
+        paddingVertical: Spacing.sm,
+        borderRadius: BorderRadius.lg,
+        gap: Spacing.xs,
+        ...Shadows.md,
+    },
+    filterButtonText: {
+        fontSize: Typography.sm,
+        fontWeight: '600',
+        color: Blue[600],
+    },
     cardContainer: {
         flex: 1,
         alignItems: 'center',

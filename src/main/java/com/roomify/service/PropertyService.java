@@ -7,6 +7,7 @@ import com.roomify.model.enums.MatchStatus;
 import com.roomify.model.enums.PreferredTenantType;
 import com.roomify.repository.ChatMessageRepository;
 import com.roomify.repository.MatchRepository;
+import com.roomify.repository.PreferencesRepository;
 import com.roomify.repository.PropertyRepository;
 import com.roomify.repository.UserRepository;
 import org.springframework.data.domain.Page;
@@ -30,6 +31,8 @@ public class PropertyService {
     private final MatchRepository matchRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final UserRepository userRepository;
+    private final PreferencesRepository preferencesRepository;
+    private final PreferencesService preferencesService;
     private final GeocodingService geocodingService;
     private final Path rootLocation = Paths.get("uploads");
     private static final int MAX_IMAGES = 7;
@@ -38,11 +41,15 @@ public class PropertyService {
                            MatchRepository matchRepository,
                            ChatMessageRepository chatMessageRepository,
                            UserRepository userRepository,
+                           PreferencesRepository preferencesRepository,
+                           PreferencesService preferencesService,
                            GeocodingService geocodingService) {
         this.propertyRepository = propertyRepository;
         this.matchRepository = matchRepository;
         this.chatMessageRepository = chatMessageRepository;
         this.userRepository = userRepository;
+        this.preferencesRepository = preferencesRepository;
+        this.preferencesService = preferencesService;
         this.geocodingService = geocodingService;
         initStorage();
     }
@@ -72,7 +79,6 @@ public class PropertyService {
         }
     }
 
-    // --- ALGORITHMIC FEED GENERATION ---
     public List<Property> getFeedForUser(String userId) {
         User user = userRepository.findById(userId).orElseThrow(() -> new RuntimeException("User not found"));
 
@@ -92,11 +98,30 @@ public class PropertyService {
         Map<Long, Double> historicalScores = history.stream()
                 .collect(Collectors.toMap(m -> m.getProperty().getId(), Match::getScore, (s1, s2) -> s1));
 
+        Optional<Preferences> userPreferences = preferencesRepository.findByUserId(userId);
+
         List<Property> candidates = propertyRepository.findAll().stream()
                 .filter(p -> !hiddenPropertyIds.contains(p.getId()))
-                .filter(p -> !p.getOwner().getId().equals(userId))
+                .filter(p -> !p.getOwner().getId().equals(userId)) 
+                .filter(p -> {
+                    if (userPreferences.isPresent()) {
+                        Preferences prefs = userPreferences.get();
+                        return preferencesService.propertyMatchesPreferences(
+                                p.getPrice().doubleValue(),
+                                p.getSurface(),
+                                p.getNumberOfRooms(),
+                                p.getLayoutType() != null ? p.getLayoutType().name() : null,
+                                p.getPetFriendly(),
+                                p.getSmokerFriendly(),
+                                p.getLatitude(),
+                                p.getLongitude(),
+                                prefs
+                        );
+                    }
+                    return true; 
+                })
                 .collect(Collectors.toList());
-
+      
         Map<Long, Double> scores = new HashMap<>();
         double VISIBILITY_THRESHOLD = 0.0;
 

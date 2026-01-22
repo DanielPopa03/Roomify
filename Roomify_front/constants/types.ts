@@ -29,3 +29,20 @@ export interface MatchResponse {
     id: number;
     status: 'TENANT_LIKED' | 'LANDLORD_LIKED' | 'MATCHED';
 }
+
+export interface Preferences {
+    id?: number;
+    minPrice?: number;
+    maxPrice?: number;
+    minSurface?: number;
+    maxSurface?: number;
+    minRooms?: number;
+    maxRooms?: number;
+    layoutTypes?: string[];
+    smokerFriendly?: boolean | null;
+    petFriendly?: boolean | null;
+    preferredTenants?: string[];
+    searchLatitude?: number;
+    searchLongitude?: number;
+    searchRadiusKm?: number;
+}
