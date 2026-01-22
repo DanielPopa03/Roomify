@@ -50,9 +50,9 @@ export default function EditPropertyScreen() {
         numberOfRooms: '',
         hasExtraBathroom: false,
         layoutType: '',
-        smokerFriendly: null as boolean | null,
-        petFriendly: null as boolean | null,
-        preferredTenants: [] as string[],
+        smokerFriendly: null as boolean | null, // Tri-state: true/false/null
+        petFriendly: null as boolean | null,    // Tri-state: true/false/null
+        preferredTenants: [] as string[],       // Multiple selection
     });
 
     const [images, setImages] = useState<ImageItem[]>([]);
@@ -92,8 +92,8 @@ export default function EditPropertyScreen() {
                         numberOfRooms: property.numberOfRooms.toString(),
                         hasExtraBathroom: property.hasExtraBathroom,
                         layoutType: property.layoutType || '',
-                        smokerFriendly: property.smokerFriendly ?? null,
-                        petFriendly: property.petFriendly ?? null,
+                        smokerFriendly: property.smokerFriendly, // Can be null
+                        petFriendly: property.petFriendly,       // Can be null
                         preferredTenants: property.preferredTenants || [],
                     });
                     setImages(property.images || []);
@@ -124,6 +124,16 @@ export default function EditPropertyScreen() {
             latitude: location.lat,
             longitude: location.lng,
             address: location.address ? location.address : prev.address
+        }));
+    };
+
+    // --- LOGIC: Multiple Selection for Tenants ---
+    const toggleTenantType = (type: string) => {
+        setFormData(prev => ({
+            ...prev,
+            preferredTenants: prev.preferredTenants.includes(type)
+                ? prev.preferredTenants.filter(t => t !== type)
+                : [...prev.preferredTenants, type]
         }));
     };
 
@@ -228,6 +238,7 @@ export default function EditPropertyScreen() {
 
     const handleIntegerChange = (f:string, v:string) => updateField(f, v.replace(/[^0-9]/g, ''));
     const handleDecimalChange = (f:string, v:string) => updateField(f, v.replace(/[^0-9.]/g, ''));
+
     const pickImages = async () => {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') return Alert.alert('Permission Required', 'Access needed.');
@@ -240,20 +251,19 @@ export default function EditPropertyScreen() {
             if (errors.images) setErrors(prev => ({ ...prev, images: '' }));
         }
     };
+
     const removeImage = (index: number) => {
         const imageToRemove = images[index];
         if ('id' in imageToRemove) setDeletedImageIds(prev => [...prev, imageToRemove.id]);
         setImages(prev => prev.filter((_, i) => i !== index));
     };
+
     const moveImage = (fromIndex: number, toIndex: number) => {
         if (toIndex < 0 || toIndex >= images.length) return;
         const newImages = [...images];
         const [movedItem] = newImages.splice(fromIndex, 1);
         newImages.splice(toIndex, 0, movedItem);
         setImages(newImages);
-    };
-    const toggleTenantType = (type: string) => {
-        setFormData(prev => ({ ...prev, preferredTenants: prev.preferredTenants.includes(type) ? prev.preferredTenants.filter(t => t !== type) : [...prev.preferredTenants, type] }));
     };
 
     return (
@@ -345,6 +355,7 @@ export default function EditPropertyScreen() {
                         ))}
                     </View>
 
+                    {/* --- SMOKER FRIENDLY (YES / NO / ANY) --- */}
                     <Text style={styles.label}>Smoker Friendly</Text>
                     <View style={styles.optionsRow}>
                         <TouchableOpacity style={[styles.optionButton, formData.smokerFriendly === true && styles.optionButtonActive]} onPress={() => updateField('smokerFriendly', true)}>
@@ -353,8 +364,12 @@ export default function EditPropertyScreen() {
                         <TouchableOpacity style={[styles.optionButton, formData.smokerFriendly === false && styles.optionButtonActive]} onPress={() => updateField('smokerFriendly', false)}>
                             <Text style={[styles.optionButtonText, formData.smokerFriendly === false && styles.optionButtonTextActive]}>No</Text>
                         </TouchableOpacity>
+                        <TouchableOpacity style={[styles.optionButton, formData.smokerFriendly === null && styles.optionButtonActive]} onPress={() => updateField('smokerFriendly', null)}>
+                            <Text style={[styles.optionButtonText, formData.smokerFriendly === null && styles.optionButtonTextActive]}>Any</Text>
+                        </TouchableOpacity>
                     </View>
 
+                    {/* --- PET FRIENDLY (YES / NO / ANY) --- */}
                     <Text style={styles.label}>Pet Friendly</Text>
                     <View style={styles.optionsRow}>
                         <TouchableOpacity style={[styles.optionButton, formData.petFriendly === true && styles.optionButtonActive]} onPress={() => updateField('petFriendly', true)}>
@@ -363,9 +378,13 @@ export default function EditPropertyScreen() {
                         <TouchableOpacity style={[styles.optionButton, formData.petFriendly === false && styles.optionButtonActive]} onPress={() => updateField('petFriendly', false)}>
                             <Text style={[styles.optionButtonText, formData.petFriendly === false && styles.optionButtonTextActive]}>No</Text>
                         </TouchableOpacity>
+                        <TouchableOpacity style={[styles.optionButton, formData.petFriendly === null && styles.optionButtonActive]} onPress={() => updateField('petFriendly', null)}>
+                            <Text style={[styles.optionButtonText, formData.petFriendly === null && styles.optionButtonTextActive]}>Any</Text>
+                        </TouchableOpacity>
                     </View>
 
-                    <Text style={styles.label}>Preferred Tenants</Text>
+                    {/* --- MULTIPLE TENANT TYPES --- */}
+                    <Text style={styles.label}>Preferred Tenants (Select multiple)</Text>
                     <View style={styles.tenantTypes}>
                         {TENANT_TYPES.map(type => (
                             <TouchableOpacity key={type} style={[styles.tenantTypeButton, formData.preferredTenants.includes(type) && styles.tenantTypeButtonActive]} onPress={() => toggleTenantType(type)}>
@@ -391,7 +410,6 @@ export default function EditPropertyScreen() {
                     <Text style={styles.editLabel}>Edit Images (drag to reorder):</Text>
                     <View style={styles.imagesGrid}>
                         {images.map((img, index) => {
-                            // FIX: Resolve the full URI using the helper for the grid as well
                             const resolvedUri = 'id' in img ? getImageUrl(img.url) : img.uri;
 
                             return (

@@ -32,15 +32,17 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(auth -> auth
-                        // Allow public access to property images (browsers don't send auth headers for <img> tags)
+                        // Allow public access to property images (browsers don't send auth headers for
+                        // <img> tags)
                         .requestMatchers("/api/properties/images/**").permitAll()
+                        // Allow public access to interview videos for video player
+                        .requestMatchers("/user/interview/video/**").permitAll()
+                        .requestMatchers("/user/images/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
-                        .anyRequest().authenticated()
-                )
+                        .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
-                        .jwt(Customizer.withDefaults())
-                );
+                        .jwt(Customizer.withDefaults()));
         return http.build();
     }
 
@@ -57,7 +59,6 @@ public class SecurityConfig {
         source.registerCorsConfiguration("/**", configuration);
         return source;
     }
-
 
     @Bean
     JwtDecoder jwtDecoder() {

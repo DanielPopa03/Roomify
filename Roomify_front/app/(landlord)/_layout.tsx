@@ -28,29 +28,18 @@ export default function LandlordLayout() {
                         },
                     }),
                     tabBarLabelStyle: {
-                        fontSize: 12,
+                        fontSize: 10,
                         fontWeight: '500',
+                        marginBottom: 4
                     },
                 }}>
 
+                {/* 1. Main Home: Tenant Review (Tinder Style) */}
+                {/* Uses the "two man icon" (people) as requested */}
                 <Tabs.Screen
                     name="index"
                     options={{
-                        title: 'Properties',
-                        tabBarIcon: ({ color, focused }) => (
-                            <Ionicons
-                                name={focused ? 'home' : 'home-outline'}
-                                size={24}
-                                color={color}
-                            />
-                        ),
-                    }}
-                />
-
-                <Tabs.Screen
-                    name="match"
-                    options={{
-                        title: 'Interested',
+                        title: 'Review',
                         tabBarIcon: ({ color, focused }) => (
                             <Ionicons
                                 name={focused ? 'people' : 'people-outline'}
@@ -61,11 +50,45 @@ export default function LandlordLayout() {
                     }}
                 />
 
-                {/* --- NEW CHAT TAB --- */}
+                {/* 2. Properties List */}
+                <Tabs.Screen
+                    name="properties"
+                    options={{
+                        title: 'Properties',
+                        href: '/(landlord)',
+                        tabBarIcon: ({ color, focused }) => (
+                            <Ionicons
+                                name={focused ? 'home' : 'home-outline'}
+                                size={24}
+                                color={color}
+                            />
+                        ),
+                    }}
+                />
+
+                {/* 3. Interested Tab */}
+                {/* Uses the "current review icon" (checkbox) as requested */}
+                <Tabs.Screen
+                    name="match"
+                    options={{
+                        title: 'Interested',
+                        href: '/(landlord)/match',
+                        tabBarIcon: ({ color, focused }) => (
+                            <Ionicons
+                                name={focused ? 'checkbox' : 'checkbox-outline'}
+                                size={24}
+                                color={color}
+                            />
+                        ),
+                    }}
+                />
+
+                {/* 4. Chat Tab */}
                 <Tabs.Screen
                     name="chat"
                     options={{
                         title: 'Messages',
+                        href: '/(landlord)/chat',
                         tabBarIcon: ({ color, focused }) => (
                             <Ionicons
                                 name={focused ? 'chatbubbles' : 'chatbubbles-outline'}
@@ -76,10 +99,12 @@ export default function LandlordLayout() {
                     }}
                 />
 
+                {/* 5. Profile Tab */}
                 <Tabs.Screen
                     name="profile"
                     options={{
                         title: 'Profile',
+                        href: '/(landlord)/profile',
                         tabBarIcon: ({ color, focused }) => (
                             <Ionicons
                                 name={focused ? 'person' : 'person-outline'}
@@ -93,28 +118,37 @@ export default function LandlordLayout() {
                 {/* --- HIDDEN SCREENS --- */}
                 {/* These are accessible via navigation but do not appear on the tab bar */}
 
+                {/* Tenant Profile Screen - MUST be declared to prevent auto-tab creation */}
+                <Tabs.Screen
+                    name="tenant-profile/[id]"
+                    options={{
+                        href: null,
+                        headerShown: false,
+                        tabBarStyle: { display: 'none' }
+                    }}
+                />
+
                 <Tabs.Screen
                     name="add-property"
                     options={{
                         href: null,
-                        title: 'Add Property',
+                        headerShown: false,
                     }}
                 />
                 <Tabs.Screen
                     name="edit-property"
                     options={{
                         href: null,
-                        title: 'Edit Property',
+                        headerShown: false,
                     }}
                 />
 
-                {/* New Chat Room Screen */}
+                {/* Chat Room Screen - hidden from tabs */}
                 <Tabs.Screen
                     name="chat-room"
                     options={{
                         href: null,
-                        title: 'Chat',
-                        // Hides the tab bar when inside a specific chat conversation
+                        headerShown: false,
                         tabBarStyle: { display: 'none' }
                     }}
                 />

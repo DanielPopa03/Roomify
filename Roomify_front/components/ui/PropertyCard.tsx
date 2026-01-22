@@ -1,13 +1,9 @@
-/**
- * PropertyCard Component
- * Swipeable property card with image, title, price, description
- */
-
 import React from 'react';
-import { View, Text, Image, StyleSheet, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Blue, Neutral, Typography, Spacing, BorderRadius, Shadows } from '../../constants/theme';
 import { formatRent } from '../../utils';
+import { SafeImage } from './SafeImage';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH - 32;
@@ -40,7 +36,11 @@ export function PropertyCard({
   return (
     <View style={styles.container}>
       {/* Property Image */}
-      <Image source={{ uri: imageUri }} style={styles.image} resizeMode="cover" />
+      <SafeImage 
+        source={{ uri: imageUri }} 
+        style={styles.image} 
+        resizeMode="cover" 
+      />
       
       {/* Price Badge */}
       <View style={styles.priceBadge}>
@@ -59,7 +59,7 @@ export function PropertyCard({
         </View>
 
         {/* Features */}
-        {(bedrooms || bathrooms || area) && (
+        {(bedrooms || bathrooms || area) ? (
           <View style={styles.featuresRow}>
             {bedrooms && (
               <View style={styles.feature}>
@@ -80,7 +80,7 @@ export function PropertyCard({
               </View>
             )}
           </View>
-        )}
+        ) : null}
 
         {/* Description */}
         <Text style={styles.description} numberOfLines={2}>{description}</Text>

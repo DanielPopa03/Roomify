@@ -131,6 +131,16 @@ export default function NormalLayout() {
                     }}
                 />
 
+                {/* --- HIDDEN INTERVIEW/EXPRESS PROFILE SCREENS --- */}
+                <Tabs.Screen
+                    name="interview"
+                    options={{
+                        href: null, // Hides from the bottom tab bar - only accessible via push
+                        headerShown: false, // Interview screens have their own headers
+                        tabBarStyle: { display: 'none' } // Hide tab bar during video recording
+                    }}
+                />
+
             </Tabs>
         </RoleGuard>
     );
