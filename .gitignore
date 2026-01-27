@@ -86,3 +86,4 @@ Roomify_front//android
 uploads/*
 
 src/main/resources/application.properties
+src/main/resources/db/migration
