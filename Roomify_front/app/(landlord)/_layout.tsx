@@ -55,7 +55,7 @@ export default function LandlordLayout() {
                     name="properties"
                     options={{
                         title: 'Properties',
-                        href: '/(landlord)',
+                        href: '/(landlord)/properties',
                         tabBarIcon: ({ color, focused }) => (
                             <Ionicons
                                 name={focused ? 'home' : 'home-outline'}
