@@ -37,7 +37,7 @@ export default function ProfileScreen() {
     const [bio, setBio] = useState('');
     const [phone, setPhone] = useState('');
     const [email, setEmail] = useState('');
-    const [emailError, setEmailError] = useState(''); // Added missing state
+    const [emailError, setEmailError] = useState('');
     const [jobTitle, setJobTitle] = useState('');
     const [isSmoker, setIsSmoker] = useState(false);
     const [hasPets, setHasPets] = useState(false);
@@ -105,6 +105,8 @@ export default function ProfileScreen() {
         }
     }, [dbUser, isEditing]);
 
+    // --- PHOTO HANDLERS (Added Reorder/Delete Logic) ---
+
     const pickImage = async () => {
         if (photos.length >= 7) { Alert.alert("Limit Reached", "Max 7 photos."); return; }
         const result = await ImagePicker.launchImageLibraryAsync({
@@ -116,6 +118,20 @@ export default function ProfileScreen() {
             setPhotos(prev => [...prev, newImage]);
         }
     };
+
+    const removePhoto = (index: number) => {
+        setPhotos(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const makeMain = (index: number) => {
+        if (index === 0) return; // Already main
+        const newPhotos = [...photos];
+        const [selected] = newPhotos.splice(index, 1);
+        newPhotos.unshift(selected); // Move to front
+        setPhotos(newPhotos);
+    };
+
+    // --- OTHER HANDLERS ---
 
     const handleEmailChange = (text: string) => {
         setEmail(text);
@@ -187,14 +203,35 @@ export default function ProfileScreen() {
                     </View>
                 </View>
 
-                {/* PHOTOS GALLERY */}
+                {/* PHOTOS GALLERY (Updated with Delete/Reorder) */}
                 <View style={styles.gallerySection}>
-                    <Text style={styles.sectionTitle}>Photos</Text>
+                    <Text style={styles.sectionTitle}>
+                        {isEditing ? "Manage Photos (Tap to set Main)" : "Photos"}
+                    </Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoList}>
-                        {isEditing && <TouchableOpacity style={styles.addPhotoButton} onPress={pickImage}><Ionicons name="add" size={30} color={Blue[600]} /></TouchableOpacity>}
+                        {isEditing && (
+                            <TouchableOpacity style={styles.addPhotoButton} onPress={pickImage}>
+                                <Ionicons name="add" size={30} color={Blue[600]} />
+                            </TouchableOpacity>
+                        )}
                         {photos.map((photo, index) => (
-                            <TouchableOpacity key={index} style={styles.photoThumbWrapper} onPress={() => setIsGalleryVisible(true)}>
+                            <TouchableOpacity
+                                key={index}
+                                style={[styles.photoThumbWrapper, index === 0 && styles.mainPhotoBorder]}
+                                onPress={() => isEditing ? makeMain(index) : setIsGalleryVisible(true)}
+                            >
                                 <Image source={{ uri: getImageUrl(photo) || undefined }} style={styles.photoThumb} />
+
+                                {isEditing && (
+                                    <TouchableOpacity style={styles.deletePhotoBtn} onPress={() => removePhoto(index)}>
+                                        <Ionicons name="close" size={12} color="#FFF" />
+                                    </TouchableOpacity>
+                                )}
+                                {index === 0 && (
+                                    <View style={styles.mainLabel}>
+                                        <Text style={styles.mainLabelText}>MAIN</Text>
+                                    </View>
+                                )}
                             </TouchableOpacity>
                         ))}
                     </ScrollView>
@@ -478,8 +515,12 @@ const styles = StyleSheet.create({
     gallerySection: { paddingHorizontal: Spacing.base, marginBottom: Spacing.lg },
     photoList: { flexDirection: 'row' },
     addPhotoButton: { width: 70, height: 70, borderRadius: 12, backgroundColor: Blue[50], justifyContent: 'center', alignItems: 'center', marginRight: 10, borderWidth: 1, borderColor: Blue[200], borderStyle: 'dashed' },
-    photoThumbWrapper: { width: 70, height: 70, borderRadius: 12, marginRight: 10 },
+    photoThumbWrapper: { width: 70, height: 70, borderRadius: 12, marginRight: 10, position: 'relative' },
     photoThumb: { width: '100%', height: '100%', borderRadius: 12 },
+    mainPhotoBorder: { borderWidth: 3, borderColor: Blue[500] },
+    deletePhotoBtn: { position: 'absolute', top: -5, right: -5, backgroundColor: '#EF4444', width: 20, height: 20, borderRadius: 10, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#FFF' },
+    mainLabel: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', paddingVertical: 2, borderBottomLeftRadius: 9, borderBottomRightRadius: 9 },
+    mainLabelText: { color: '#FFF', fontSize: 8, fontWeight: 'bold' },
 
     // Preferences
     prefRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Neutral[100] },

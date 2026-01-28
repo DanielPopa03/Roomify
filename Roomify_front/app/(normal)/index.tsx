@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 
-import { SwipeButtons, EmptyState, ImageGalleryModal, FilterModal} from '@/components/ui';
+import { SwipeButtons, EmptyState, ImageGalleryModal, FilterModal } from '@/components/ui';
 import { Blue, Neutral, Typography, Spacing, BorderRadius, Shadows } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { usePreferences } from '@/hooks/usePreferences';
@@ -28,7 +28,9 @@ import { Property, MatchResponse, Preferences } from '@/constants/types';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
-const CARD_WIDTH = SCREEN_WIDTH - (Spacing.md * 2);
+
+// FIX: Added Math.min to prevent card from looking huge on Web/Desktop
+const CARD_WIDTH = Math.min(SCREEN_WIDTH - (Spacing.md * 2), 400);
 const CARD_HEIGHT = SCREEN_HEIGHT * 0.78;
 
 // --- HELPER: Formatting ---
@@ -416,16 +418,16 @@ export default function TenantBrowseScreen() {
 
     const rotate = position.x.interpolate({ inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2], outputRange: ['-12deg', '0deg', '12deg'], extrapolate: 'clamp' });
     const nextCardScale = position.x.interpolate({ inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2], outputRange: [1, 0.95, 1], extrapolate: 'clamp' });
-    const likeOpacity = position.x.interpolate({ inputRange: [0, SCREEN_WIDTH/4], outputRange: [0, 1] });
-    const nopeOpacity = position.x.interpolate({ inputRange: [-SCREEN_WIDTH/4, 0], outputRange: [1, 0] });
+    const likeOpacity = position.x.interpolate({ inputRange: [0, SCREEN_WIDTH / 4], outputRange: [0, 1] });
+    const nopeOpacity = position.x.interpolate({ inputRange: [-SCREEN_WIDTH / 4, 0], outputRange: [1, 0] });
 
     if (isLoading && properties.length === 0) return <ActivityIndicator style={styles.centered} size="large" color={Blue[500]} />;
 
     if (!currentProperty) {
         return (
             <View style={[styles.container, { paddingTop: insets.top }]}>
-                <TouchableOpacity 
-                    style={styles.filterButton} 
+                <TouchableOpacity
+                    style={styles.filterButton}
                     onPress={() => setIsFilterModalVisible(true)}
                     activeOpacity={0.7}
                 >
@@ -452,8 +454,8 @@ export default function TenantBrowseScreen() {
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
             {/* Filter Button */}
-            <TouchableOpacity 
-                style={styles.filterButton} 
+            <TouchableOpacity
+                style={styles.filterButton}
                 onPress={() => setIsFilterModalVisible(true)}
                 activeOpacity={0.7}
             >
@@ -472,8 +474,9 @@ export default function TenantBrowseScreen() {
                         <PropertyCard
                             property={nextProperty}
                             isTopCard={false}
-                            onOpenGallery={() => {}}
-                            onOpenMap={() => {}}
+                            onOpenGallery={() => { }}
+                            onOpenMap={() => { }}
+                            userPreferences={dbUser} // Added missing prop
                         />
                     </Animated.View>
                 )}
@@ -489,6 +492,7 @@ export default function TenantBrowseScreen() {
                         isTopCard={true}
                         onOpenGallery={() => setIsGalleryVisible(true)}
                         onOpenMap={() => setIsMapVisible(true)}
+                        userPreferences={dbUser} // Added missing prop
                     />
 
                     {/* Like/Nope Indicators */}
@@ -503,52 +507,16 @@ export default function TenantBrowseScreen() {
             </View>
             <SwipeButtons onInterested={handleInterested} onNotInterested={handleNotInterested} />
 
-            {currentProperty && (
-                <>
-                    <View style={styles.cardContainer}>
-                        {nextProperty && (
-                            <Animated.View key={nextProperty.id} style={[styles.card, styles.nextCard, { transform: [{ scale: nextCardScale }], opacity: 1 }]}>
-                                <PropertyCard
-                                    property={nextProperty}
-                                    isTopCard={false}
-                                    onOpenGallery={() => {}}
-                                    onOpenMap={() => {}}
-                                    userPreferences={dbUser}
-                                />
-                            </Animated.View>
-                        )}
-                        <Animated.View
-                            key={currentProperty.id}
-                            style={[styles.card, { transform: [{ translateX: position.x }, { translateY: position.y }, { rotate }] }]}
-                            {...panResponder.panHandlers}
-                        >
-                            <PropertyCard
-                                property={currentProperty}
-                                isTopCard={true}
-                                onOpenGallery={() => setIsGalleryVisible(true)}
-                                onOpenMap={() => setIsMapVisible(true)}
-                                userPreferences={dbUser}
-                            />
-                            <Animated.View style={[styles.indicator, styles.interestedIndicator, { opacity: likeOpacity }]}>
-                                <Ionicons name="checkmark-circle" size={64} color="#10B981" />
-                            </Animated.View>
-                            <Animated.View style={[styles.indicator, styles.notInterestedIndicator, { opacity: nopeOpacity }]}>
-                                <Ionicons name="close-circle" size={64} color="#EF4444" />
-                            </Animated.View>
-                        </Animated.View>
-                    </View>
-                    <SwipeButtons onInterested={handleInterested} onNotInterested={handleNotInterested} />
-                </>
-            )}
+            {/* --- REMOVED DUPLICATE RENDER BLOCK HERE --- */}
 
             <FilterModal
                 visible={isFilterModalVisible}
                 onClose={() => setIsFilterModalVisible(false)}
                 initialPreferences={preferences || undefined}
                 onApplyFilters={handleApplyFilters}
-             />
+            />
             <ImageGalleryModal
-                images={currentProperty?.images || matchedProperty?.images || []}
+                images={(currentProperty?.images || matchedProperty?.images || []).map(getImageUrl)}
                 visible={isGalleryVisible}
                 onClose={() => setIsGalleryVisible(false)}
             />
