@@ -145,6 +145,12 @@ const PropertyCard = memo(({ property, isTopCard, onOpenGallery, onOpenMap, user
                     <Text style={styles.priceBadgeText}>€{property.price}</Text>
                     <Text style={styles.priceBadgeUnit}>/mo</Text>
                 </View>
+                {/* Trending Badge */}
+                {property.isTrending && (
+                    <View style={styles.trendingBadge}>
+                        <Text style={styles.trendingBadgeText}>🔥 Trending</Text>
+                    </View>
+                )}
             </TouchableOpacity>
 
             <View style={styles.contentWrapper}>
@@ -171,6 +177,14 @@ const PropertyCard = memo(({ property, isTopCard, onOpenGallery, onOpenMap, user
 
                     <View style={styles.headerSection}>
                         <Text style={styles.title} numberOfLines={2}>{property.title}</Text>
+                        {/* Active Viewers Indicator */}
+                        {property.activeViewersCount != null && property.activeViewersCount > 2 && (
+                            <View style={styles.activeViewersBadge}>
+                                <Text style={styles.activeViewersText}>
+                                    👀 {property.activeViewersCount} people viewing now
+                                </Text>
+                            </View>
+                        )}
                         <View style={styles.addressRow}>
                             <Ionicons name="location" size={16} color={Neutral[500]} />
                             <Text style={styles.location} numberOfLines={1}>{property.address}</Text>
@@ -591,10 +605,14 @@ const styles = StyleSheet.create({
     priceBadge: { position: 'absolute', bottom: 12, left: 12, backgroundColor: Blue[600], paddingHorizontal: 12, paddingVertical: 6, borderRadius: BorderRadius.lg, flexDirection: 'row', alignItems: 'baseline' },
     priceBadgeText: { fontSize: Typography.size.xl, fontWeight: 'bold', color: '#FFFFFF' },
     priceBadgeUnit: { fontSize: Typography.size.xs, color: 'rgba(255,255,255,0.9)', marginLeft: 2 },
+    trendingBadge: { position: 'absolute', top: 12, left: 12, backgroundColor: 'rgba(239, 68, 68, 0.95)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: BorderRadius.md, zIndex: 10, elevation: 10 },
+    trendingBadgeText: { fontSize: Typography.size.xs, fontWeight: 'bold', color: '#FFFFFF' },
     contentWrapper: { flex: 1 },
     scrollContent: { padding: Spacing.md },
     headerSection: { marginBottom: Spacing.sm },
     title: { fontSize: Typography.size.lg, fontWeight: 'bold', color: Neutral[900], marginBottom: 4 },
+    activeViewersBadge: { backgroundColor: '#EFF6FF', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, alignSelf: 'flex-start', marginBottom: 6, borderWidth: 1, borderColor: '#BFDBFE' },
+    activeViewersText: { fontSize: Typography.size.xs, fontWeight: 'bold', color: '#2563EB' },
     addressRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
     location: { fontSize: Typography.size.sm, color: Neutral[500], marginLeft: 4, flex: 1 },
     mapPill: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', backgroundColor: Blue[50], paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, gap: 6 },

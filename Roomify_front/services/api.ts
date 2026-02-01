@@ -94,6 +94,9 @@ export interface Property {
   images: PropertyImage[];
   createdAt?: string;
   updatedAt?: string;
+  // Social Proof Fields (populated by backend)
+  activeViewersCount?: number;  // Only on single property view (null on feed)
+  isTrending?: boolean;         // True if property has 5+ likes in last 48h
 }
 
 export interface Conversation {

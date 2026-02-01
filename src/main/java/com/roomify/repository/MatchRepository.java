@@ -11,11 +11,38 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
 @Repository
 public interface MatchRepository extends JpaRepository<Match, Long> {
+
+    // --- TRENDING CALCULATION ---
+
+    /**
+     * Count recent likes (TENANT_LIKED or MATCHED) for a property within a time
+     * window.
+     * Used for "Trending/Hot" badge calculation.
+     */
+    @Query("SELECT COUNT(m) FROM Match m " +
+            "WHERE m.property.id = :propertyId " +
+            "AND (m.status = 'TENANT_LIKED' OR m.status = 'MATCHED') " +
+            "AND m.createdAt >= :since")
+    int countRecentLikes(@Param("propertyId") Long propertyId,
+            @Param("since") LocalDateTime since);
+
+    /**
+     * Batch query to get like counts for multiple properties.
+     * Used in feed to avoid N+1 queries.
+     */
+    @Query("SELECT m.property.id, COUNT(m) FROM Match m " +
+            "WHERE m.property.id IN :propertyIds " +
+            "AND (m.status = 'TENANT_LIKED' OR m.status = 'MATCHED') " +
+            "AND m.createdAt >= :since " +
+            "GROUP BY m.property.id")
+    List<Object[]> countRecentLikesForProperties(@Param("propertyIds") List<Long> propertyIds,
+            @Param("since") LocalDateTime since);
 
     // --- CRITICAL FOR SCORING SERVICE ---
     // Fetches full history (Likes, Declines, Matches) so the Service can
@@ -25,13 +52,16 @@ public interface MatchRepository extends JpaRepository<Match, Long> {
     // --- LEGACY/HELPER QUERIES ---
 
     // Updated to include DECLINED.
-    // If you use this for filtering "Seen" items, this ensures Disliked items count as "Seen".
+    // If you use this for filtering "Seen" items, this ensures Disliked items count
+    // as "Seen".
     @Query("SELECT m.property.id FROM Match m WHERE m.tenant.id = :tenantId AND (m.status = 'TENANT_LIKED' OR m.status = 'MATCHED' OR m.status = 'TENANT_DECLINED')")
     List<Long> findPropertyIdsInteractedByTenant(@Param("tenantId") String tenantId);
 
-    // Landlord view: Includes users they have already Liked, Matched with, or Declined
+    // Landlord view: Includes users they have already Liked, Matched with, or
+    // Declined
     @Query("SELECT m.tenant.id FROM Match m WHERE m.landlord.id = :landlordId AND m.property.id = :propertyId AND (m.status = 'LANDLORD_LIKED' OR m.status = 'MATCHED' OR m.status = 'LANDLORD_DECLINED')")
-    List<String> findTenantIdsInteractedByLandlord(@Param("landlordId") String landlordId, @Param("propertyId") Long propertyId);
+    List<String> findTenantIdsInteractedByLandlord(@Param("landlordId") String landlordId,
+            @Param("propertyId") Long propertyId);
 
     // --- FINDERS ---
 

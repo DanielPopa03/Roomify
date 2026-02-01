@@ -14,6 +14,9 @@ export interface Property {
     numberOfRooms: number;
     images: PropertyImage[];
     ownerId: string;
+    // Social Proof Fields
+    activeViewersCount?: number;
+    isTrending?: boolean;
 }
 
 export interface User {

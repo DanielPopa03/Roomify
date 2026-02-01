@@ -38,8 +38,7 @@ public class PropertyController {
     public ResponseEntity<?> createProperty(
             @RequestPart("data") String propertyRequestString,
             @RequestParam(value = "images", required = false) List<MultipartFile> images,
-            @AuthenticationPrincipal Jwt jwt
-    ) {
+            @AuthenticationPrincipal Jwt jwt) {
         try {
             PropertyRequest propertyRequest = objectMapper.readValue(propertyRequestString, PropertyRequest.class);
             // FIX: Use jwt.getSubject() (the ID)
@@ -59,8 +58,7 @@ public class PropertyController {
             @PathVariable Long id,
             @RequestPart("data") String propertyRequestString,
             @RequestPart(value = "images", required = false) List<MultipartFile> images,
-            @AuthenticationPrincipal Jwt jwt
-    ) {
+            @AuthenticationPrincipal Jwt jwt) {
         try {
             PropertyRequest request = objectMapper.readValue(propertyRequestString, PropertyRequest.class);
             // FIX: Use jwt.getSubject() (the ID)
@@ -79,8 +77,7 @@ public class PropertyController {
     public ResponseEntity<Page<Property>> getMyProperties(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size
-    ) {
+            @RequestParam(defaultValue = "10") int size) {
         // FIX: Use jwt.getSubject()
         String userId = jwt.getSubject();
         Pageable pageable = PageRequest.of(page, size);
@@ -112,14 +109,17 @@ public class PropertyController {
     }
 
     @GetMapping
-    public ResponseEntity<Page<Property>> getAllProperties(@RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "10") int size) {
+    public ResponseEntity<Page<Property>> getAllProperties(@RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
         Pageable pageable = PageRequest.of(page, size);
         return ResponseEntity.ok(propertyService.getAllProperties(pageable));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Property> getPropertyById(@PathVariable Long id) {
-        return ResponseEntity.ok(propertyService.getPropertyById(id));
+    public ResponseEntity<Property> getPropertyById(@PathVariable Long id, @AuthenticationPrincipal Jwt jwt) {
+        // Pass viewer ID for view tracking; null if somehow unauthenticated
+        String viewerId = jwt != null ? jwt.getSubject() : null;
+        return ResponseEntity.ok(propertyService.getPropertyById(id, viewerId));
     }
 
     @GetMapping("/feed")

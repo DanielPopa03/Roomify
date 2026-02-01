@@ -61,10 +61,7 @@ public class Property {
     private Boolean petFriendly;
 
     @ElementCollection(targetClass = PreferredTenantType.class)
-    @CollectionTable(
-            name = "property_preferred_tenants",
-            joinColumns = @JoinColumn(name = "property_id")
-    )
+    @CollectionTable(name = "property_preferred_tenants", joinColumns = @JoinColumn(name = "property_id"))
     @Enumerated(EnumType.STRING)
     @Column(name = "tenant_type")
     @Builder.Default
@@ -83,4 +80,20 @@ public class Property {
 
     @org.hibernate.annotations.Formula("(SELECT COUNT(*) FROM matches m WHERE m.property_id = id AND m.status = 'TENANT_LIKED')")
     private int interestedCount;
+
+    // --- TRANSIENT FIELDS (not persisted, populated at runtime) ---
+
+    /**
+     * Number of users currently viewing this property (last 15 minutes).
+     * Only populated when fetching single property details.
+     */
+    @Transient
+    private Integer activeViewersCount;
+
+    /**
+     * True if property has received 5+ likes in the last 48 hours.
+     * Populated on both feed and single property views.
+     */
+    @Transient
+    private Boolean isTrending;
 }
