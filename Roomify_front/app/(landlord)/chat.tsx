@@ -1,5 +1,15 @@
 // (landlord)/chat.tsx
 import React, { useState, useEffect, useCallback } from 'react';
+
+const formatSeconds = (sec: number) => {
+    if (!sec || sec <= 0) return '0s';
+    const hours = Math.floor(sec / 3600);
+    const minutes = Math.floor((sec % 3600) / 60);
+    const seconds = sec % 60;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    if (minutes > 0) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
+};
 import { View, Text, FlatList, StyleSheet, TouchableOpacity, RefreshControl, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -96,6 +106,14 @@ export default function LandlordChatListScreen() {
                     <Text style={styles.timestamp}>{item.timestamp}</Text>
                 </View>
                 <Text style={styles.propertyLabel} numberOfLines={1}>{item.propertyTitle}</Text>
+
+                {/* Time left for tenant to message */}
+                {item.timeLeftSeconds > 0 && !item.tenantMessaged ? (
+                    <Text style={styles.countdownSmall}>Tenant can message for: {formatSeconds(item.timeLeftSeconds)}</Text>
+                ) : item.tenantMessaged ? (
+                    <Text style={styles.countdownSmall}>Tenant messaged ✔️</Text>
+                ) : null}
+
                 <View style={styles.messageRow}>
                     <Text style={[styles.message, item.unreadCount > 0 && styles.messageBold]} numberOfLines={1}>
                         {item.lastMessage}
@@ -158,6 +176,7 @@ const styles = StyleSheet.create({
     name: { fontSize: Typography.size.base, fontWeight: Typography.weight.semibold, color: Neutral[900] },
     timestamp: { fontSize: Typography.size.xs, color: Neutral[400] },
     propertyLabel: { fontSize: Typography.size.xs, color: Blue[600], marginBottom: 4 },
+    countdownSmall: { fontSize: 12, color: Neutral[500], marginTop: 4 },
     messageRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     message: { fontSize: Typography.size.sm, color: Neutral[500], flex: 1, marginRight: Spacing.sm },
     messageBold: { color: Neutral[900], fontWeight: Typography.weight.medium },

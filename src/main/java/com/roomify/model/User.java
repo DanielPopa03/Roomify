@@ -80,6 +80,12 @@ public class User {
     @Builder.Default
     @Column(name = "pet_friendly")
     private Boolean petFriendly = false;
+
+    // A small integer representing tenant seriousness:
+    // starts at 0, increases by +1 when tenant messages within 24h of a match, decreases by -1 when they fail to do so.
+    @Builder.Default
+    @Column(name = "seriousness_score", columnDefinition = "integer default 0")
+    private Integer seriousnessScore = 0;
     // --- End Video Interview Fields ---
 
     public boolean isProfileComplete() {

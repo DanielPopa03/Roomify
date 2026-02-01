@@ -15,6 +15,39 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Video, ResizeMode } from 'expo-av';
 
 import { SafeImage, LifestyleBadges } from '@/components/ui';
+
+// --- Helper: Seriousness colorization ---
+const hexToRgb = (hex: string) => {
+    const clean = hex.replace('#','');
+    const bigint = parseInt(clean, 16);
+    return { r: (bigint >> 16) & 255, g: (bigint >> 8) & 255, b: bigint & 255 };
+};
+const rgbToHex = (r:number,g:number,b:number) => {
+    const toHex = (x:number) => ('0' + x.toString(16)).slice(-2);
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+};
+const interpolateColor = (a:string, b:string, t:number) => {
+    const A = hexToRgb(a); const B = hexToRgb(b);
+    const r = Math.round(A.r + (B.r - A.r) * t);
+    const g = Math.round(A.g + (B.g - A.g) * t);
+    const bl = Math.round(A.b + (B.b - A.b) * t);
+    return rgbToHex(r,g,bl);
+};
+
+const seriousnessColor = (score?: number) => {
+    if (score == null) return '#6B7280';
+    if (score === 0) return '#6B7280';
+    const mag = Math.min(Math.abs(score), 10) / 10; // normalize
+    if (score > 0) return interpolateColor('#D1FAE5', '#059669', mag);
+    return interpolateColor('#FEE2E2', '#B91C1C', mag);
+};
+
+const seriousnessTextColor = (score?: number) => {
+    const bg = seriousnessColor(score);
+    const { r, g, b } = hexToRgb(bg);
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance > 0.6 ? '#000' : '#fff';
+};
 import { Blue, BorderRadius, Neutral, Spacing, Typography, Shadows } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { UsersApi, InterviewApi, ConversationsApi, PublicUserProfile } from '@/services/api';
@@ -33,6 +66,7 @@ export default function TenantProfileScreen() {
 
     // Fetch tenant details
     useEffect(() => {
+        let interval: any;
         if (!id || typeof id !== 'string') return;
         
         const fetchTenant = async () => {
@@ -186,6 +220,15 @@ export default function TenantProfileScreen() {
                             <Text style={styles.jobTitle}>{tenant.jobTitle}</Text>
                         </View>
                     )}
+
+                    {typeof tenant.seriousnessScore !== 'undefined' && (
+                        <View style={styles.seriousnessContainer}>
+                            <Text style={styles.seriousnessLabel}>Seriousness</Text>
+                            <View style={[styles.seriousnessBadge, { backgroundColor: seriousnessColor(tenant.seriousnessScore) }]}>
+                                <Text style={[styles.seriousnessText, { color: seriousnessTextColor(tenant.seriousnessScore) }]}>{tenant.seriousnessScore}</Text>
+                            </View>
+                        </View>
+                    )}
                 </View>
 
                 {/* Bio Section */}
@@ -200,8 +243,8 @@ export default function TenantProfileScreen() {
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Lifestyle Preferences</Text>
                     <LifestyleBadges 
-                        smokerFriendly={tenant.smokerFriendly} 
-                        petFriendly={tenant.petFriendly} 
+                        smokerFriendly={tenant.isSmoker} 
+                        petFriendly={tenant.hasPets} 
                     />
                 </View>
 
@@ -374,6 +417,32 @@ const styles = StyleSheet.create({
         borderRadius: BorderRadius.md,
         gap: Spacing.md,
     },
+
+    // Seriousness
+    seriousnessContainer: {
+        marginTop: Spacing.md,
+        alignItems: 'center',
+    },
+    seriousnessLabel: {
+        fontSize: Typography.size.xs,
+        color: Neutral[500],
+        marginBottom: Spacing.xs,
+    },
+    seriousnessBadge: {
+        minWidth: 48,
+        paddingHorizontal: Spacing.md,
+        paddingVertical: Spacing.xs,
+        borderRadius: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    seriousnessText: {
+        color: '#fff',
+        fontWeight: '700',
+    },
+    positive: { backgroundColor: '#059669' },
+    negative: { backgroundColor: '#B91C1C' },
+    neutral: { backgroundColor: '#6B7280' },
     placeholderText: {
         fontSize: Typography.size.base,
         fontWeight: '500',

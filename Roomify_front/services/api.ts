@@ -98,11 +98,29 @@ export interface Property {
 
 export interface Conversation {
   id: string;
-  participants: User[];
+  participants?: User[];
   property?: Property;
   lastMessage?: Message;
   createdAt?: string;
   updatedAt?: string;
+
+  // Chat list fields returned by /api/chats endpoints
+  tenantId?: string;
+  tenantName?: string;
+  tenantAvatar?: string | null;
+  landlordId?: string;
+  landlordName?: string;
+  landlordAvatar?: string | null;
+  propertyTitle?: string;
+  propertyImage?: string | null;
+  price?: number;
+  timestamp?: string;
+  unreadCount?: number;
+
+  // Match-specific
+  tenantMessaged?: boolean;
+  timeLeftSeconds?: number;
+  expiresAt?: string | null;
 }
 
 export interface Message {
@@ -203,14 +221,18 @@ export const AuthApi = {
 export interface PublicUserProfile {
   id: string;
   firstName?: string;
+  lastName?: string;
+  email?: string;
+  phoneNumber?: string;
   bio?: string;
   jobTitle?: string;
-  smokerFriendly?: boolean;
-  petFriendly?: boolean;
+  isSmoker?: boolean;
+  hasPets?: boolean;
   videoUrl?: string;
   isVideoPublic?: boolean;
   isVerified?: boolean;
   createdAt?: string;
+  seriousnessScore?: number;
 }
 
 export const UsersApi = {

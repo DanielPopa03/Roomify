@@ -13,6 +13,16 @@ import { useAuth } from '@/context/AuthContext';
 import { InterviewApi, UsersApi, PublicUserProfile } from '@/services/api';
 import { SafeImage } from '@/components/ui';
 
+const formatSeconds = (sec: number) => {
+    if (!sec || sec <= 0) return '0s';
+    const hours = Math.floor(sec / 3600);
+    const minutes = Math.floor((sec % 3600) / 60);
+    const seconds = sec % 60;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    if (minutes > 0) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
+};
+
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function ChatRoomScreen() {
@@ -32,6 +42,11 @@ export default function ChatRoomScreen() {
     const [isVideoModalVisible, setVideoModalVisible] = useState(false);
     const [tenant, setTenant] = useState<PublicUserProfile | null>(null);
     const [sendingRequest, setSendingRequest] = useState(false);
+
+    // Match Metadata
+    const [matchInfo, setMatchInfo] = useState<any | null>(null);
+    const [secondsLeft, setSecondsLeft] = useState<number>(0);
+    const [countdownActive, setCountdownActive] = useState(false);
 
     const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
 
@@ -93,18 +108,57 @@ export default function ChatRoomScreen() {
         }
     }, [chatId, getAccessToken, MY_IP]);
 
+    // --- Match Info (Countdown) ---
+    const fetchMatchInfo = useCallback(async () => {
+        try {
+            const token = await getAccessToken();
+            const response = await fetch(`http://${MY_IP}:8080/api/chats/${chatId}/info`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                setMatchInfo(data);
+                setSecondsLeft(data?.timeLeftSeconds || 0);
+                setCountdownActive((data?.timeLeftSeconds || 0) > 0 && !data?.tenantMessaged);
+            }
+        } catch (error) {
+            console.warn('Failed to fetch match info', error);
+        }
+    }, [chatId, getAccessToken, MY_IP]);
+
+    useEffect(() => {
+        if (countdownActive && secondsLeft > 0) {
+            const id = setInterval(() => {
+                setSecondsLeft(s => {
+                    if (s <= 1) {
+                        setCountdownActive(false);
+                        // Refresh conversations when countdown ends
+                        fetchMessages();
+                        fetchMatchInfo();
+                        clearInterval(id);
+                        return 0;
+                    }
+                    return s - 1;
+                });
+            }, 1000);
+            return () => clearInterval(id);
+        }
+    }, [countdownActive, secondsLeft, fetchMessages, fetchMatchInfo]);
+
     // --- 3. Lifecycle & Polling ---
     useEffect(() => {
         fetchMessages(true);
         markAsRead(); // Mark read immediately on open
+        fetchMatchInfo();
 
         const interval = setInterval(() => {
             fetchMessages(false);
             markAsRead(); // Keep marking read while open
+            fetchMatchInfo();
         }, 3000);
 
         return () => clearInterval(interval);
-    }, [fetchMessages, markAsRead]);
+    }, [fetchMessages, markAsRead, fetchMatchInfo]);
 
     // --- 4. Send Message Logic ---
     const sendMessage = async (text: string = inputText) => {
@@ -138,6 +192,7 @@ export default function ChatRoomScreen() {
                 body: JSON.stringify({ text: textToSend })
             });
             fetchMessages(); // Sync real ID/Timestamp/Status
+            fetchMatchInfo(); // Refresh match metadata (seriousness/time-left) after sending
         } catch (error) {
             console.error("Send failed", error);
         } finally {
@@ -210,6 +265,12 @@ export default function ChatRoomScreen() {
                 
                 <View style={styles.headerInfo}>
                     <Text style={styles.headerTitle}>{title || 'Chat'}</Text>
+                    {matchInfo && !matchInfo.tenantMessaged && (matchInfo.timeLeftSeconds > 0 || secondsLeft > 0) && (
+                        <Text style={styles.countdownText}>Tenant can message for: {formatSeconds(countdownActive ? secondsLeft : (matchInfo.timeLeftSeconds || 0))}</Text>
+                    )}
+                    {matchInfo && matchInfo.tenantMessaged && (
+                        <Text style={styles.countdownText}>Tenant has messaged ✔️</Text>
+                    )}
                 </View>
                 
                 <TouchableOpacity 
@@ -404,6 +465,7 @@ const styles = StyleSheet.create({
     header: { flexDirection: 'row', alignItems: 'center', padding: Spacing.sm, borderBottomWidth: 1, borderBottomColor: Neutral[100] },
     backButton: { padding: Spacing.sm },
     headerInfo: { flex: 1, alignItems: 'center' },
+    countdownText: { fontSize: 12, color: Neutral[500], marginTop: 2 },
     headerTitle: { fontSize: Typography.size.lg, fontWeight: Typography.weight.semibold, color: Neutral[900] },
     headerAction: { padding: Spacing.xs },
     headerAvatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: Neutral[200] },

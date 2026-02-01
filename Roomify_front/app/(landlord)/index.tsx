@@ -44,6 +44,39 @@ const getImageUrl = (path: string | null | undefined) => {
     return path.startsWith('/') ? `${BASE_URL}${path}` : `${BASE_URL}/${path}`;
 };
 
+// --- Helper: Seriousness colorization (same logic as other screens) ---
+const hexToRgb = (hex: string) => {
+    const clean = hex.replace('#','');
+    const bigint = parseInt(clean, 16);
+    return { r: (bigint >> 16) & 255, g: (bigint >> 8) & 255, b: bigint & 255 };
+};
+const rgbToHex = (r:number,g:number,b:number) => {
+    const toHex = (x:number) => ('0' + x.toString(16)).slice(-2);
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+};
+const interpolateColor = (a:string, b:string, t:number) => {
+    const A = hexToRgb(a); const B = hexToRgb(b);
+    const r = Math.round(A.r + (B.r - A.r) * t);
+    const g = Math.round(A.g + (B.g - A.g) * t);
+    const bl = Math.round(A.b + (B.b - A.b) * t);
+    return rgbToHex(r,g,bl);
+};
+
+const seriousnessColor = (score?: number) => {
+    if (score == null) return '#6B7280';
+    if (score === 0) return '#6B7280';
+    const mag = Math.min(Math.abs(score), 10) / 10;
+    if (score > 0) return interpolateColor('#D1FAE5', '#059669', mag);
+    return interpolateColor('#FEE2E2', '#B91C1C', mag);
+};
+
+const seriousnessTextColor = (score?: number) => {
+    const bg = seriousnessColor(score);
+    const { r, g, b } = hexToRgb(bg);
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance > 0.6 ? '#000' : '#fff';
+};
+
 // --- MATCH OVERLAY COMPONENT ---
 const MatchOverlay = ({ visible, tenant, propertyImage, onClose, onChat }: any) => {
     const scaleAnim = useRef(new Animated.Value(0)).current;
@@ -146,6 +179,14 @@ const TenantCard = memo(({ tenant, isTopCard, onOpenGallery, propertyRequirement
                         {tenant.firstName} {tenant.lastName ? tenant.lastName[0] + '.' : ''}
                         <Text style={styles.ageText}>  {tenant.age ? `, ${tenant.age}` : ''}</Text>
                     </Text>
+                    {typeof tenant.seriousnessScore !== 'undefined' && (
+                        <View style={styles.seriousnessInline}>
+                            <Text style={styles.seriousnessInlineText}>Serious: </Text>
+                            <View style={[styles.seriousnessInlineBadge, { backgroundColor: seriousnessColor(tenant.seriousnessScore) }]}>
+                                <Text style={[styles.seriousnessInlineBadgeText, { color: seriousnessTextColor(tenant.seriousnessScore) }]}>{tenant.seriousnessScore}</Text>
+                            </View>
+                        </View>
+                    )}
 
                     <View style={{ flexDirection: 'row', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
                         {tenant.tenantType && (
@@ -510,6 +551,10 @@ const styles = StyleSheet.create({
 
     // Overlay Content
     overlayContent: { position: 'absolute', bottom: 16, left: 16, right: 16 },
+    seriousnessInline: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
+    seriousnessInlineText: { color: '#FFF', marginRight: 6, fontSize: 12 },
+    seriousnessInlineBadge: { minWidth: 34, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+    seriousnessInlineBadgeText: { color: '#FFF', fontWeight: '700', fontSize: 12 },
     nameText: { fontSize: 28, fontWeight: 'bold', color: '#FFFFFF', textShadowColor: 'rgba(0,0,0,0.3)', textShadowOffset: {width:0, height:1}, textShadowRadius: 3 },
     ageText: { fontSize: 22, fontWeight: '400' },
     badgeRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.2)', alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, gap: 4 },

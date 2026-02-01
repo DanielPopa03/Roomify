@@ -34,6 +34,14 @@ public class ChatController {
         return ResponseEntity.ok(chatService.getChatMessages(matchId, jwt.getSubject()));
     }
 
+    @GetMapping("/{matchId}/info")
+    public ResponseEntity<Map<String, Object>> getMatchInfo(
+            @PathVariable Long matchId,
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        return ResponseEntity.ok(chatService.getMatchInfo(matchId, jwt.getSubject()));
+    }
+
     // 3. Send a Message
     @PostMapping("/{matchId}/messages")
     public ResponseEntity<Map<String, Object>> sendMessage(
