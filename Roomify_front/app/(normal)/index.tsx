@@ -25,21 +25,19 @@ import { Blue, Neutral, Typography, Spacing, BorderRadius, Shadows } from '@/con
 import { useAuth } from '@/context/AuthContext';
 import { usePreferences } from '@/hooks/usePreferences';
 import { Property, MatchResponse, Preferences } from '@/constants/types';
+import ReportModal from '@/components/report-modal';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
 
-// FIX: Added Math.min to prevent card from looking huge on Web/Desktop
 const CARD_WIDTH = Math.min(SCREEN_WIDTH - (Spacing.md * 2), 400);
 const CARD_HEIGHT = SCREEN_HEIGHT * 0.78;
 
-// --- HELPER: Formatting ---
 const formatEnumString = (str: string) => {
     if (!str) return '';
     return str.toLowerCase().split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 };
 
-// --- HELPER: Fix Image URLs ---
 const getImageUrl = (path: string | null | undefined) => {
     if (!path) return 'https://via.placeholder.com/400x300?text=No+Image';
     if (path.startsWith('http') || path.startsWith('data:')) return path;
@@ -48,7 +46,7 @@ const getImageUrl = (path: string | null | undefined) => {
     return path.startsWith('/') ? `${BASE_URL}${path}` : `${BASE_URL}/${path}`;
 };
 
-// --- MATCH OVERLAY COMPONENT ---
+// --- MATCH OVERLAY ---
 const MatchOverlay = ({ visible, userImage, propertyImage, propertyTitle, onClose, onChat }: any) => {
     const scaleAnim = useRef(new Animated.Value(0)).current;
     const slideLeft = useRef(new Animated.Value(-300)).current;
@@ -79,13 +77,10 @@ const MatchOverlay = ({ visible, userImage, propertyImage, propertyTitle, onClos
         <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
             <View style={styles.modalOverlay}>
                 <View style={styles.modalBackground} />
-
                 <Animated.View style={{ transform: [{ scale: scaleAnim }, { rotate: '-5deg' }] }}>
                     <Text style={styles.matchTitle}>It's a Match!</Text>
                 </Animated.View>
-
                 <Text style={styles.matchSubtitle}>The landlord of {propertyTitle} likes you too.</Text>
-
                 <View style={styles.avatarsRow}>
                     <Animated.View style={{ transform: [{ translateX: slideLeft }] }}>
                         <Image source={{ uri: userImage || 'https://via.placeholder.com/150' }} style={[styles.matchAvatar, styles.leftAvatar]} />
@@ -97,13 +92,11 @@ const MatchOverlay = ({ visible, userImage, propertyImage, propertyTitle, onClos
                         <Ionicons name="heart" size={32} color={Blue[600]} />
                     </View>
                 </View>
-
                 <Animated.View style={[styles.matchButtons, { opacity: fadeAnim }]}>
                     <TouchableOpacity style={styles.chatButton} onPress={onChat}>
                         <Ionicons name="chatbubbles" size={20} color="#FFF" />
                         <Text style={styles.chatButtonText}>Send a Message</Text>
                     </TouchableOpacity>
-
                     <TouchableOpacity style={styles.keepSwipingButton} onPress={onClose}>
                         <Text style={styles.keepSwipingText}>Keep Swiping</Text>
                     </TouchableOpacity>
@@ -114,9 +107,8 @@ const MatchOverlay = ({ visible, userImage, propertyImage, propertyTitle, onClos
 };
 
 // --- PROPERTY CARD ---
-const PropertyCard = memo(({ property, isTopCard, onOpenGallery, onOpenMap, userPreferences }: any) => {
+const PropertyCard = memo(({ property, isTopCard, onOpenGallery, onOpenMap, userPreferences, onReport, onVisitProfile }: any) => {
 
-    // Calculate Mismatches
     const mismatches = [];
     if (userPreferences?.wantsExtraBathroom && !property.hasExtraBathroom) {
         mismatches.push({ icon: 'water', text: 'Missing Extra Bath' });
@@ -124,7 +116,6 @@ const PropertyCard = memo(({ property, isTopCard, onOpenGallery, onOpenMap, user
     if (userPreferences?.minRooms && property.numberOfRooms < userPreferences.minRooms) {
         mismatches.push({ icon: 'grid', text: `Only ${property.numberOfRooms} Rooms (Wanted ${userPreferences.minRooms})` });
     }
-    // Check Tenant Type Match
     const isTenantTypeMatch = userPreferences?.tenantType && property.preferredTenants?.includes(userPreferences.tenantType);
     if (userPreferences?.tenantType && property.preferredTenants?.length > 0 && !isTenantTypeMatch) {
         mismatches.push({ icon: 'people', text: `Prefers ${formatEnumString(property.preferredTenants[0])}` });
@@ -132,20 +123,56 @@ const PropertyCard = memo(({ property, isTopCard, onOpenGallery, onOpenMap, user
 
     return (
         <View style={styles.cardInner}>
-            <TouchableOpacity
-                style={styles.imageContainer}
-                onPress={onOpenGallery}
-                activeOpacity={isTopCard ? 0.95 : 1}
-                disabled={!isTopCard}
-            >
-                {/* Use getImageUrl helper here */}
-                <Image source={{ uri: getImageUrl(property.images?.[0]) }} style={styles.cardImage} resizeMode="cover" />
-                <LinearGradient colors={['rgba(0,0,0,0.2)', 'transparent', 'transparent', 'rgba(0,0,0,0.6)']} style={styles.imageGradient} />
+            <View style={styles.imageContainer}>
+                <TouchableOpacity
+                    style={styles.imageTouchArea}
+                    onPress={() => {
+                        console.log("Gallery pressed");
+                        onOpenGallery();
+                    }}
+                    activeOpacity={isTopCard ? 0.95 : 1}
+                    disabled={!isTopCard}
+                >
+                    <Image source={{ uri: getImageUrl(property.images?.[0]) }} style={styles.cardImage} resizeMode="cover" />
+                    <LinearGradient colors={['rgba(0,0,0,0.3)', 'transparent', 'transparent', 'rgba(0,0,0,0.6)']} style={styles.imageGradient} />
+                </TouchableOpacity>
+
+                {/* --- HEADER OVERLAY --- */}
+                {isTopCard && (
+                    <View style={styles.cardHeaderOverlay} pointerEvents="box-none">
+                        {/* Profile Button */}
+                        <TouchableOpacity
+                            style={[styles.headerButton, { zIndex: 100 }]}
+                            onPress={(e) => {
+                                if (Platform.OS === 'web') e.stopPropagation();
+                                console.log("Profile button pressed");
+                                onVisitProfile();
+                            }}
+                            activeOpacity={0.7}
+                        >
+                            <Ionicons name="person-circle" size={28} color="#FFF" />
+                        </TouchableOpacity>
+
+                        {/* Report Button */}
+                        <TouchableOpacity
+                            style={[styles.headerButton, styles.reportButtonBg, { zIndex: 100 }]}
+                            onPress={(e) => {
+                                if (Platform.OS === 'web') e.stopPropagation();
+                                console.log("Report button pressed");
+                                onReport();
+                            }}
+                            activeOpacity={0.7}
+                        >
+                            <Ionicons name="flag" size={20} color="#EF4444" />
+                        </TouchableOpacity>
+                    </View>
+                )}
+
                 <View style={styles.priceBadge}>
                     <Text style={styles.priceBadgeText}>€{property.price}</Text>
                     <Text style={styles.priceBadgeUnit}>/mo</Text>
                 </View>
-            </TouchableOpacity>
+            </View>
 
             <View style={styles.contentWrapper}>
                 <ScrollView
@@ -154,7 +181,6 @@ const PropertyCard = memo(({ property, isTopCard, onOpenGallery, onOpenMap, user
                     scrollEnabled={isTopCard}
                     nestedScrollEnabled={true}
                 >
-                    {/* MISMATCH ALERTS */}
                     {mismatches.length > 0 && (
                         <View style={styles.mismatchContainer}>
                             <Text style={styles.mismatchHeader}>⚠️ Note differences:</Text>
@@ -181,7 +207,6 @@ const PropertyCard = memo(({ property, isTopCard, onOpenGallery, onOpenMap, user
                         </TouchableOpacity>
                     </View>
 
-                    {/* LIFESTYLE BADGES (New) */}
                     <View style={styles.lifestyleRow}>
                         {property.petFriendly && (
                             <View style={[styles.amenityTag, { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0', borderWidth: 1 }]}>
@@ -195,7 +220,6 @@ const PropertyCard = memo(({ property, isTopCard, onOpenGallery, onOpenMap, user
                         )}
                     </View>
 
-                    {/* SPECS GRID (With Match Highlighting) */}
                     <View style={styles.specsGrid}>
                         <View style={[styles.specItem, (userPreferences?.minRooms && property.numberOfRooms >= userPreferences.minRooms) && styles.specItemMatch]}>
                             <Ionicons name="grid-outline" size={18} color={Blue[600]} />
@@ -208,12 +232,6 @@ const PropertyCard = memo(({ property, isTopCard, onOpenGallery, onOpenMap, user
                         </View>
                         <View style={styles.verticalDivider} />
                         <View style={styles.specItem}><Ionicons name="resize-outline" size={18} color={Blue[600]} /><Text style={styles.specText}>{property.surface} m²</Text></View>
-                        {property.layoutType && (
-                            <>
-                                <View style={styles.verticalDivider} />
-                                <View style={styles.specItem}><Ionicons name="home-outline" size={18} color={Blue[600]} /><Text style={styles.specText} numberOfLines={1}>{formatEnumString(property.layoutType)}</Text></View>
-                            </>
-                        )}
                     </View>
 
                     <View style={styles.descriptionContainer}>
@@ -227,7 +245,6 @@ const PropertyCard = memo(({ property, isTopCard, onOpenGallery, onOpenMap, user
                             <View style={styles.inlineTagsContainer}>
                                 <Text style={styles.sectionLabelInline}>Preferred:</Text>
                                 {property.preferredTenants.map((item: string, i: number) => {
-                                    // Highlight if matches user
                                     const isMatch = userPreferences?.tenantType === item;
                                     return (
                                         <View key={i} style={[styles.tenantTag, isMatch && styles.tenantTagMatch]}>
@@ -278,7 +295,7 @@ const PropertyMapModal = ({ visible, onClose, latitude, longitude, address }: an
 
 export default function TenantBrowseScreen() {
     const insets = useSafeAreaInsets();
-    const { getAccessToken, logout, user, dbUser } = useAuth(); // Get dbUser preferences
+    const { getAccessToken, logout, user, dbUser } = useAuth();
     const router = useRouter();
     const { preferences, savePreferences, getPreferences } = usePreferences();
 
@@ -286,29 +303,24 @@ export default function TenantBrowseScreen() {
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
     const [isFilterModalVisible, setIsFilterModalVisible] = useState(false);
-
     const [isGalleryVisible, setIsGalleryVisible] = useState(false);
     const [isMapVisible, setIsMapVisible] = useState(false);
-
-    // --- ANIMATION STATE ---
-    const [position, setPosition] = useState(new Animated.ValueXY());
-    const positionRef = useRef(position);
-
-    // --- MATCH STATE ---
     const [matchModalVisible, setMatchModalVisible] = useState(false);
     const [matchedProperty, setMatchedProperty] = useState<any>(null);
     const [currentMatchId, setCurrentMatchId] = useState<number | null>(null);
 
-    useEffect(() => { positionRef.current = position; }, [position]);
+    // Report State
+    const [reportModalVisible, setReportModalVisible] = useState(false);
 
+    // Animation State
+    const [position, setPosition] = useState(new Animated.ValueXY());
+    const positionRef = useRef(position);
+
+    useEffect(() => { positionRef.current = position; }, [position]);
     const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
 
-    // Load user preferences on mount
-    useEffect(() => {
-        getPreferences();
-    }, []);
+    useEffect(() => { getPreferences(); fetchFeed(); }, []);
 
-    // --- 4. FETCH FEED (Updated with 409 Handling & Preferences Filter) ---
     const fetchFeed = useCallback(async () => {
         setIsLoading(true);
         try {
@@ -316,63 +328,34 @@ export default function TenantBrowseScreen() {
             const response = await fetch(`http://${MY_IP}:8080/api/properties/feed`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
-
-            if (response.status === 409) {
-                const errorText = await response.text();
-                Alert.alert("Login Mismatch", errorText, [{ text: "Log Out & Switch", onPress: async () => { await logout(); router.replace('/login'); } }]);
-                setIsLoading(false);
-                return;
-            }
-
             if (response.ok) {
                 const data = await response.json();
-                // Ensure images are mapped properly if needed, though getImageUrl handles it now too
-                const mapped = data.map((p: any) => ({
-                    ...p,
-                    images: p.images?.map((img: any) => img.url) || []
-                }));
+                const mapped = data.map((p: any) => ({ ...p, images: p.images?.map((img: any) => img.url) || [] }));
                 setProperties(mapped);
                 setCurrentIndex(0);
             }
         } catch (error) { console.error("Feed Error:", error); }
         finally { setIsLoading(false); }
-    }, [getAccessToken, MY_IP, logout, router]);
+    }, [getAccessToken, MY_IP]);
 
-    useEffect(() => { fetchFeed(); }, [fetchFeed]);
-
-    // Handle applying filters
     const handleApplyFilters = async (newPreferences: Preferences) => {
         await savePreferences(newPreferences);
-        // Refresh the feed with new filters
         fetchFeed();
     };
 
-    // --- 5. SWIPE LOGIC ---
     const swipeCard = useCallback((direction: 'left' | 'right') => {
         const x = direction === 'right' ? SCREEN_WIDTH + 100 : -SCREEN_WIDTH - 100;
         const currentProp = properties[currentIndex];
 
-        Animated.spring(positionRef.current, {
-            toValue: { x, y: -50 },
-            useNativeDriver: false,
-            speed: 100
-        }).start(async () => {
+        Animated.spring(positionRef.current, { toValue: { x, y: -50 }, useNativeDriver: false, speed: 100 }).start(async () => {
             setCurrentIndex(prev => prev + 1);
             setPosition(new Animated.ValueXY());
-
             if (!currentProp) return;
-
             try {
                 const token = await getAccessToken();
                 const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
-
                 if (direction === 'right') {
-                    const response = await fetch(`http://${MY_IP}:8080/api/matches/tenant/swipe/${currentProp.id}`, {
-                        method: 'POST',
-                        headers: headers,
-                        body: JSON.stringify({})
-                    });
-
+                    const response = await fetch(`http://${MY_IP}:8080/api/matches/tenant/swipe/${currentProp.id}`, { method: 'POST', headers: headers, body: JSON.stringify({}) });
                     if (response.ok) {
                         const matchData: MatchResponse = await response.json();
                         if (matchData.status === 'MATCHED') {
@@ -382,12 +365,7 @@ export default function TenantBrowseScreen() {
                         }
                     }
                 } else {
-                    console.log("Passing property:", currentProp.id);
-                    await fetch(`http://${MY_IP}:8080/api/matches/tenant/pass/${currentProp.id}`, {
-                        method: 'POST',
-                        headers: headers,
-                        body: JSON.stringify({})
-                    });
+                    await fetch(`http://${MY_IP}:8080/api/matches/tenant/pass/${currentProp.id}`, { method: 'POST', headers: headers, body: JSON.stringify({}) });
                 }
             } catch (error) { console.error("Swipe API Error", error); }
         });
@@ -399,8 +377,11 @@ export default function TenantBrowseScreen() {
 
     const panResponder = useRef(
         PanResponder.create({
-            onStartShouldSetPanResponder: () => true,
-            onMoveShouldSetPanResponder: (evt, gestureState) => Math.abs(gestureState.dx) > 10,
+            onStartShouldSetPanResponder: () => false,
+            onMoveShouldSetPanResponder: (evt, gestureState) => {
+                const { dx, dy } = gestureState;
+                return Math.abs(dx) > 10 || Math.abs(dy) > 10;
+            },
             onPanResponderMove: (_, gesture) => { positionRef.current.setValue({ x: gesture.dx, y: gesture.dy }); },
             onPanResponderRelease: (_, gesture) => {
                 if (gesture.dx > SWIPE_THRESHOLD) swipeCard('right');
@@ -413,9 +394,56 @@ export default function TenantBrowseScreen() {
     const handleInterested = () => swipeCard('right');
     const handleNotInterested = () => swipeCard('left');
 
+    // --- NAVIGATION HANDLERS ---
+    const handleVisitProfile = () => {
+        const currentProp = properties[currentIndex];
+        console.log("Visit Profile Triggered. OwnerID:", currentProp?.ownerId);
+
+        if (currentProp?.ownerId) {
+            // Using string interpolation is often safer for Expo Router dynamic routes
+            router.push(`/(normal)/user-profile/${currentProp.ownerId}`);
+        } else {
+            Alert.alert("Error", "Could not find landlord profile.");
+        }
+    };
+
+    // --- REPORT HANDLERS ---
+    const handleReportPress = () => {
+        console.log("Report Modal Open Triggered");
+        // Directly open the modal to ensure it works
+        setReportModalVisible(true);
+    };
+
+    const handleSubmitReport = async (reason: string, description: string) => {
+        const currentProp = properties[currentIndex];
+        if (!currentProp) return;
+
+        // Simple heuristic: If reason relates to property, report property.
+        // For now, we report the PROPERTY by default, but include the Landlord ID.
+        const typeToReport = reason === 'VULGAR_CONTENT' || reason === 'HARASSMENT' ? 'USER_PROFILE' : 'PROPERTY';
+
+        try {
+            const token = await getAccessToken();
+            await fetch(`http://${MY_IP}:8080/api/reports`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    reportedUserId: currentProp.ownerId,
+                    reason,
+                    description,
+                    type: typeToReport,
+                    propertyId: currentProp.id,
+                    contentSnapshot: currentProp.title
+                })
+            });
+            Alert.alert("Submitted", "Thank you for keeping our community safe.");
+        } catch (error) {
+            Alert.alert("Error", "Could not submit report.");
+        }
+    };
+
     const currentProperty = properties[currentIndex];
     const nextProperty = properties[currentIndex + 1];
-
     const rotate = position.x.interpolate({ inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2], outputRange: ['-12deg', '0deg', '12deg'], extrapolate: 'clamp' });
     const nextCardScale = position.x.interpolate({ inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2], outputRange: [1, 0.95, 1], extrapolate: 'clamp' });
     const likeOpacity = position.x.interpolate({ inputRange: [0, SCREEN_WIDTH / 4], outputRange: [0, 1] });
@@ -426,62 +454,29 @@ export default function TenantBrowseScreen() {
     if (!currentProperty) {
         return (
             <View style={[styles.container, { paddingTop: insets.top }]}>
-                <TouchableOpacity
-                    style={styles.filterButton}
-                    onPress={() => setIsFilterModalVisible(true)}
-                    activeOpacity={0.7}
-                >
+                <TouchableOpacity style={styles.filterButton} onPress={() => setIsFilterModalVisible(true)}>
                     <Ionicons name="funnel" size={20} color={Blue[600]} />
                     <Text style={styles.filterButtonText}>Filter</Text>
                 </TouchableOpacity>
-                <EmptyState
-                    icon="home-outline"
-                    title="No more properties"
-                    message="Try updating your filters to see more properties, or check back later!"
-                    actionLabel="Update Filters"
-                    onAction={() => setIsFilterModalVisible(true)}
-                />
-                <FilterModal
-                    visible={isFilterModalVisible}
-                    onClose={() => setIsFilterModalVisible(false)}
-                    initialPreferences={preferences || undefined}
-                    onApplyFilters={handleApplyFilters}
-                />
+                <EmptyState icon="home-outline" title="No more properties" message="Try updating your filters!" actionLabel="Update Filters" onAction={() => setIsFilterModalVisible(true)} />
+                <FilterModal visible={isFilterModalVisible} onClose={() => setIsFilterModalVisible(false)} initialPreferences={preferences || undefined} onApplyFilters={handleApplyFilters} />
             </View>
         );
     }
 
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
-            {/* Filter Button */}
-            <TouchableOpacity
-                style={styles.filterButton}
-                onPress={() => setIsFilterModalVisible(true)}
-                activeOpacity={0.7}
-            >
+            <TouchableOpacity style={styles.filterButton} onPress={() => setIsFilterModalVisible(true)}>
                 <Ionicons name="funnel" size={20} color={Blue[600]} />
                 <Text style={styles.filterButtonText}>Filter</Text>
             </TouchableOpacity>
 
             <View style={styles.cardContainer}>
-
-                {/* BACKGROUND CARD */}
                 {nextProperty && (
-                    <Animated.View
-                        key={nextProperty.id}
-                        style={[styles.card, styles.nextCard, { transform: [{ scale: nextCardScale }], opacity: 1 }]}
-                    >
-                        <PropertyCard
-                            property={nextProperty}
-                            isTopCard={false}
-                            onOpenGallery={() => { }}
-                            onOpenMap={() => { }}
-                            userPreferences={dbUser} // Added missing prop
-                        />
+                    <Animated.View key={nextProperty.id} style={[styles.card, styles.nextCard, { transform: [{ scale: nextCardScale }], opacity: 1 }]}>
+                        <PropertyCard property={nextProperty} isTopCard={false} />
                     </Animated.View>
                 )}
-
-                {/* FOREGROUND CARD */}
                 <Animated.View
                     key={currentProperty.id}
                     style={[styles.card, { transform: [{ translateX: position.x }, { translateY: position.y }, { rotate }] }]}
@@ -492,10 +487,10 @@ export default function TenantBrowseScreen() {
                         isTopCard={true}
                         onOpenGallery={() => setIsGalleryVisible(true)}
                         onOpenMap={() => setIsMapVisible(true)}
-                        userPreferences={dbUser} // Added missing prop
+                        userPreferences={dbUser}
+                        onReport={handleReportPress}
+                        onVisitProfile={handleVisitProfile}
                     />
-
-                    {/* Like/Nope Indicators */}
                     <Animated.View style={[styles.indicator, styles.interestedIndicator, { opacity: likeOpacity }]}>
                         <Ionicons name="checkmark-circle" size={64} color="#10B981" />
                     </Animated.View>
@@ -503,32 +498,12 @@ export default function TenantBrowseScreen() {
                         <Ionicons name="close-circle" size={64} color="#EF4444" />
                     </Animated.View>
                 </Animated.View>
-
             </View>
+
             <SwipeButtons onInterested={handleInterested} onNotInterested={handleNotInterested} />
-
-            {/* --- REMOVED DUPLICATE RENDER BLOCK HERE --- */}
-
-            <FilterModal
-                visible={isFilterModalVisible}
-                onClose={() => setIsFilterModalVisible(false)}
-                initialPreferences={preferences || undefined}
-                onApplyFilters={handleApplyFilters}
-            />
-            <ImageGalleryModal
-                images={(currentProperty?.images || matchedProperty?.images || []).map(getImageUrl)}
-                visible={isGalleryVisible}
-                onClose={() => setIsGalleryVisible(false)}
-            />
-
-            <PropertyMapModal
-                visible={isMapVisible}
-                onClose={() => setIsMapVisible(false)}
-                latitude={currentProperty?.latitude || 0}
-                longitude={currentProperty?.longitude || 0}
-                address={currentProperty?.address || ''}
-            />
-
+            <FilterModal visible={isFilterModalVisible} onClose={() => setIsFilterModalVisible(false)} initialPreferences={preferences || undefined} onApplyFilters={handleApplyFilters} />
+            <ImageGalleryModal images={(currentProperty?.images || []).map(getImageUrl)} visible={isGalleryVisible} onClose={() => setIsGalleryVisible(false)} />
+            <PropertyMapModal visible={isMapVisible} onClose={() => setIsMapVisible(false)} latitude={currentProperty?.latitude || 0} longitude={currentProperty?.longitude || 0} address={currentProperty?.address || ''} />
             <MatchOverlay
                 visible={matchModalVisible}
                 userImage={getImageUrl(user?.picture)}
@@ -538,12 +513,14 @@ export default function TenantBrowseScreen() {
                 onChat={() => {
                     setMatchModalVisible(false);
                     if (currentMatchId) {
-                        router.push({ pathname: '/chat-room', params: { chatId: currentMatchId, title: matchedProperty?.title || 'Landlord' } });
+                        router.push({ pathname: '/chat-room', params: { chatId: currentMatchId, title: matchedProperty?.title || 'Landlord', otherUserId: matchedProperty?.ownerId } });
                     } else {
                         router.push('/(tenant)/matches');
                     }
                 }}
             />
+            {/* Report Modal */}
+            <ReportModal visible={reportModalVisible} onClose={() => setReportModalVisible(false)} onSubmit={handleSubmitReport} targetName="Property or Landlord" />
         </View>
     );
 }
@@ -551,43 +528,46 @@ export default function TenantBrowseScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: Neutral[50] },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    filterButton: {
-        position: 'absolute',
-        top: Spacing.md,
-        right: Spacing.md,
-        zIndex: 100,
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: 'white',
-        paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.sm,
-        borderRadius: BorderRadius.lg,
-        gap: Spacing.xs,
-        ...Shadows.md,
-    },
-    filterButtonText: {
-        fontSize: Typography.sm,
-        fontWeight: '600',
-        color: Blue[600],
-    },
-    cardContainer: {
-        flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        position: 'relative',
-    },
-    card: {
-        width: CARD_WIDTH,
-        height: CARD_HEIGHT,
-        borderRadius: BorderRadius['2xl'],
-        ...Shadows.xl,
-        position: 'absolute',
-    },
+    filterButton: { position: 'absolute', top: Spacing.md, right: Spacing.md, zIndex: 100, flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderRadius: BorderRadius.lg, gap: Spacing.xs, ...Shadows.md },
+    filterButtonText: { fontSize: Typography.sm, fontWeight: '600', color: Blue[600] },
+    cardContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+    card: { width: CARD_WIDTH, height: CARD_HEIGHT, borderRadius: BorderRadius['2xl'], ...Shadows.xl, position: 'absolute' },
     nextCard: { zIndex: 0 },
     cardInner: { flex: 1, backgroundColor: '#FFFFFF', borderRadius: BorderRadius['2xl'], overflow: 'hidden' },
+
+    // IMAGE & OVERLAY
     imageContainer: { height: '40%', position: 'relative' },
+    imageTouchArea: { width: '100%', height: '100%' },
     cardImage: { width: '100%', height: '100%' },
     imageGradient: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '100%' },
+
+    // HEADER OVERLAY
+    cardHeaderOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        padding: 12,
+        zIndex: 100, // Important
+        elevation: 100
+    },
+    headerButton: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: 'rgba(0,0,0,0.3)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.2)'
+    },
+    reportButtonBg: {
+        backgroundColor: '#FFFFFF',
+        borderColor: '#EF4444'
+    },
+
     priceBadge: { position: 'absolute', bottom: 12, left: 12, backgroundColor: Blue[600], paddingHorizontal: 12, paddingVertical: 6, borderRadius: BorderRadius.lg, flexDirection: 'row', alignItems: 'baseline' },
     priceBadgeText: { fontSize: Typography.size.xl, fontWeight: 'bold', color: '#FFFFFF' },
     priceBadgeUnit: { fontSize: Typography.size.xs, color: 'rgba(255,255,255,0.9)', marginLeft: 2 },
@@ -599,14 +579,11 @@ const styles = StyleSheet.create({
     location: { fontSize: Typography.size.sm, color: Neutral[500], marginLeft: 4, flex: 1 },
     mapPill: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', backgroundColor: Blue[50], paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, gap: 6 },
     mapPillText: { fontSize: Typography.size.xs, fontWeight: '600', color: Blue[600] },
-
-    // Updated Specs Grid
     specsGrid: { flexDirection: 'row', alignItems: 'center', backgroundColor: Neutral[50], borderRadius: BorderRadius.md, padding: Spacing.sm, marginBottom: Spacing.md, justifyContent: 'space-between' },
     specItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     specItemMatch: { backgroundColor: '#ECFDF5', borderColor: '#10B981', borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, margin: -3 },
     specText: { fontSize: Typography.size.xs, fontWeight: '600', color: Neutral[800] },
     verticalDivider: { width: 1, height: 16, backgroundColor: Neutral[200] },
-
     descriptionContainer: { marginBottom: Spacing.md },
     sectionTitle: { fontSize: Typography.size.xs, fontWeight: 'bold', color: Neutral[400], textTransform: 'uppercase', marginBottom: 4, letterSpacing: 0.5 },
     description: { fontSize: Typography.size.sm, color: Neutral[800], lineHeight: 22 },
@@ -614,30 +591,21 @@ const styles = StyleSheet.create({
     sectionIcon: { width: 24, marginTop: 8 },
     inlineTagsContainer: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
     sectionLabelInline: { fontSize: Typography.size.xs, color: Neutral[500], marginRight: 4 },
-
-    // Updated Tags
     tenantTag: { backgroundColor: Blue[50], paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: Blue[100] },
     tenantTagMatch: { backgroundColor: '#10B981', borderColor: '#059669' },
     tenantTagText: { fontSize: Typography.size.xs, color: Blue[700], fontWeight: '600' },
     tenantTagTextMatch: { color: '#FFFFFF' },
-
-    // Lifestyle Badges
     lifestyleRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
     amenityTag: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
     amenityText: { fontSize: Typography.size.xs, fontWeight: '600' },
-
-    // Mismatches
     mismatchContainer: { marginBottom: 12, backgroundColor: '#FFFBEB', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#FCD34D' },
     mismatchHeader: { fontSize: 12, fontWeight: 'bold', color: '#B45309', marginBottom: 4 },
     mismatchRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
     mismatchTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, gap: 4, borderWidth: 1, borderColor: '#FDE68A' },
     mismatchText: { fontSize: 12, color: '#D97706', fontWeight: '600' },
-
     indicator: { position: 'absolute', top: '35%', alignSelf: 'center', zIndex: 10, shadowColor: "#000", shadowOpacity: 0.2, elevation: 5 },
     interestedIndicator: { left: 40 },
     notInterestedIndicator: { right: 40 },
-
-    // Modal Styles
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: Spacing.md, borderBottomWidth: 1, borderBottomColor: Neutral[200] },
     modalTitle: { fontSize: Typography.size.lg, fontWeight: 'bold' },
     closeButton: { padding: 4 },

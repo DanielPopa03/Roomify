@@ -1,5 +1,6 @@
 package com.roomify.service;
 
+import com.roomify.dto.PropertyFeedResponse;
 import com.roomify.dto.PropertyRequest;
 import com.roomify.model.*;
 import com.roomify.model.enums.LayoutType;
@@ -58,34 +59,19 @@ public class PropertyService {
         try { Files.createDirectories(rootLocation); } catch (IOException e) { throw new RuntimeException(e); }
     }
 
-    @Transactional
-    public void deleteAllByLandlord(String landlordId) {
-        List<Property> properties = propertyRepository.findByOwner_Id(landlordId, Pageable.unpaged()).getContent();
-        for (Property property : properties) {
-            List<Match> matches = matchRepository.findAll().stream()
-                    .filter(m -> m.getProperty().getId().equals(property.getId()))
-                    .collect(Collectors.toList());
-            
-            for (Match match : matches) {
-                chatMessageRepository.deleteAll(chatMessageRepository.findByMatchIdOrderByCreatedAtAsc(match.getId()));
-            }
-            matchRepository.deleteByPropertyId(property.getId());
-            if (property.getImages() != null) {
-                for (PropertyImage img : property.getImages()) {
-                    deleteFileFromDisk(img.getUrl());
-                }
-            }
-            propertyRepository.delete(property);
-        }
-    }
+    // --- FEED LOGIC (UPDATED RETURN TYPE) ---
 
-    public List<Property> getFeedForUser(String userId) {
+    public List<PropertyFeedResponse> getFeedForUser(String userId) {
         User user = userRepository.findById(userId).orElseThrow(() -> new RuntimeException("User not found"));
 
+        // If admin/landlord, just return everything mapped to DTO (simplified)
         if (user.getRole() != null &&
                 (!"USER".equalsIgnoreCase(user.getRole().getName()) &&
                         !"TENANT".equalsIgnoreCase(user.getRole().getName()))) {
-            return propertyRepository.findAll(PageRequest.of(0, 20)).getContent();
+            return propertyRepository.findAll(PageRequest.of(0, 20)).getContent()
+                    .stream()
+                    .map(this::mapToFeedResponse)
+                    .collect(Collectors.toList());
         }
 
         List<Match> history = matchRepository.findAllByTenant_Id(userId);
@@ -102,7 +88,7 @@ public class PropertyService {
 
         List<Property> candidates = propertyRepository.findAll().stream()
                 .filter(p -> !hiddenPropertyIds.contains(p.getId()))
-                .filter(p -> !p.getOwner().getId().equals(userId)) 
+                .filter(p -> !p.getOwner().getId().equals(userId))
                 .filter(p -> {
                     if (userPreferences.isPresent()) {
                         Preferences prefs = userPreferences.get();
@@ -118,10 +104,10 @@ public class PropertyService {
                                 prefs
                         );
                     }
-                    return true; 
+                    return true;
                 })
                 .collect(Collectors.toList());
-      
+
         Map<Long, Double> scores = new HashMap<>();
         double VISIBILITY_THRESHOLD = 0.0;
 
@@ -149,37 +135,76 @@ public class PropertyService {
             }
         }
 
-        return sortedFeed;
+        // CONVERT TO DTO
+        return sortedFeed.stream()
+                .map(this::mapToFeedResponse)
+                .collect(Collectors.toList());
+    }
+
+    // --- MAPPING HELPER ---
+    private PropertyFeedResponse mapToFeedResponse(Property property) {
+        PropertyFeedResponse response = new PropertyFeedResponse();
+
+        response.setId(property.getId());
+        response.setTitle(property.getTitle());
+        response.setPrice(property.getPrice());
+        response.setSurface(property.getSurface());
+        response.setAddress(property.getAddress());
+        response.setDescription(property.getDescription());
+        response.setNumberOfRooms(property.getNumberOfRooms());
+        response.setHasExtraBathroom(property.getHasExtraBathroom());
+        response.setLayoutType(property.getLayoutType());
+        response.setPreferredTenants(property.getPreferredTenants());
+        response.setSmokerFriendly(property.getSmokerFriendly());
+        response.setPetFriendly(property.getPetFriendly());
+        response.setLatitude(property.getLatitude());
+        response.setLongitude(property.getLongitude());
+
+        if (property.getImages() != null) {
+            List<PropertyFeedResponse.ImageDto> imageDtos = property.getImages().stream()
+                    .map(img -> {
+                        PropertyFeedResponse.ImageDto dto = new PropertyFeedResponse.ImageDto();
+                        dto.setId(img.getId());
+                        dto.setUrl(img.getUrl());
+                        dto.setOrderIndex(img.getOrderIndex());
+                        return dto;
+                    })
+                    .sorted(Comparator.comparingInt(PropertyFeedResponse.ImageDto::getOrderIndex))
+                    .collect(Collectors.toList());
+            response.setImages(imageDtos);
+        }
+
+        // Map Owner Details for Frontend Navigation
+        if (property.getOwner() != null) {
+            response.setOwnerId(property.getOwner().getId());
+            response.setOwnerFirstName(property.getOwner().getFirstName());
+            response.setOwnerPicture(property.getOwner().getPicture());
+        }
+
+        return response;
     }
 
     private double calculateMatchScore(User tenant, Property property) {
-        double score = 50.0; // Base Score
+        double score = 50.0;
 
-        // 1. Pets (HARD Filter - Dealbreaker)
         if (Boolean.TRUE.equals(tenant.getHasPets()) && Boolean.FALSE.equals(property.getPetFriendly())) {
             return -100.0;
         }
-
-        // 2. Smoking (HARD Filter - Dealbreaker)
         if (Boolean.TRUE.equals(tenant.getIsSmoker()) && Boolean.FALSE.equals(property.getSmokerFriendly())) {
             return -100.0;
         }
 
-        // 3. Tenant Type (SOFT Filter - Penalty)
-        // UPDATED: Now subtracts 20 points instead of returning -100
         if (property.getPreferredTenants() != null && !property.getPreferredTenants().isEmpty()) {
             if (tenant.getTenantType() != null) {
                 boolean isAccepted = property.getPreferredTenants().contains(tenant.getTenantType());
-
                 if (!isAccepted) {
-                    score -= 20.0; // Penalty (Not target demographic), but still visible
+                    score -= 20.0;
                 } else {
-                    score += 20.0; // Bonus (Perfect demographic)
+                    score += 20.0;
                 }
             }
         }
 
-        // 4. Rooms
         int desiredRooms = tenant.getMinRooms() != null ? tenant.getMinRooms() : 1;
         if (property.getNumberOfRooms() >= desiredRooms) {
             score += 15.0;
@@ -188,7 +213,6 @@ public class PropertyService {
             score -= 15.0;
         }
 
-        // 5. Bathroom
         if (Boolean.TRUE.equals(tenant.getWantsExtraBathroom())) {
             if (Boolean.TRUE.equals(property.getHasExtraBathroom())) score += 10.0;
             else score -= 5.0;
@@ -197,7 +221,28 @@ public class PropertyService {
         return score;
     }
 
-    // --- CRUD ---
+    // --- CRUD OPERATIONS (UNCHANGED) ---
+
+    @Transactional
+    public void deleteAllByLandlord(String landlordId) {
+        List<Property> properties = propertyRepository.findByOwner_Id(landlordId, Pageable.unpaged()).getContent();
+        for (Property property : properties) {
+            List<Match> matches = matchRepository.findAll().stream()
+                    .filter(m -> m.getProperty().getId().equals(property.getId()))
+                    .collect(Collectors.toList());
+
+            for (Match match : matches) {
+                chatMessageRepository.deleteAll(chatMessageRepository.findByMatchIdOrderByCreatedAtAsc(match.getId()));
+            }
+            matchRepository.deleteByPropertyId(property.getId());
+            if (property.getImages() != null) {
+                for (PropertyImage img : property.getImages()) {
+                    deleteFileFromDisk(img.getUrl());
+                }
+            }
+            propertyRepository.delete(property);
+        }
+    }
 
     @Transactional
     public Property createProperty(PropertyRequest request, List<MultipartFile> files, String userId) {
@@ -260,16 +305,14 @@ public class PropertyService {
         Property property = propertyRepository.findById(id).orElseThrow(() -> new RuntimeException("Property not found"));
         if (!property.getOwner().getId().equals(userId)) throw new RuntimeException("Unauthorized");
 
-        // Delete chat messages for all matches related to this property
         List<Match> matches = matchRepository.findAll().stream()
                 .filter(m -> m.getProperty().getId().equals(property.getId()))
                 .collect(Collectors.toList());
-        
+
         for (Match match : matches) {
             chatMessageRepository.deleteAll(chatMessageRepository.findByMatchIdOrderByCreatedAtAsc(match.getId()));
         }
 
-        // Delete associated matches
         matchRepository.deleteByPropertyId(property.getId());
         if (property.getImages() != null) {
             for (PropertyImage img : property.getImages()) deleteFileFromDisk(img.getUrl());

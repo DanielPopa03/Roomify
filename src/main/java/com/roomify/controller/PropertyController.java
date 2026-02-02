@@ -2,6 +2,7 @@ package com.roomify.controller;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.roomify.dto.PropertyFeedResponse;
 import com.roomify.dto.PropertyRequest;
 import com.roomify.model.Property;
 import com.roomify.service.PropertyService;
@@ -33,7 +34,6 @@ public class PropertyController {
         this.propertyService = propertyService;
     }
 
-    // 1. CREATE PROPERTY
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> createProperty(
             @RequestPart("data") String propertyRequestString,
@@ -42,7 +42,6 @@ public class PropertyController {
     ) {
         try {
             PropertyRequest propertyRequest = objectMapper.readValue(propertyRequestString, PropertyRequest.class);
-            // FIX: Use jwt.getSubject() (the ID)
             String userId = jwt.getSubject();
             Property savedProperty = propertyService.createProperty(propertyRequest, images, userId);
             return ResponseEntity.ok(savedProperty);
@@ -53,7 +52,6 @@ public class PropertyController {
         }
     }
 
-    // 2. UPDATE PROPERTY
     @PutMapping(value = "/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> updateProperty(
             @PathVariable Long id,
@@ -63,7 +61,6 @@ public class PropertyController {
     ) {
         try {
             PropertyRequest request = objectMapper.readValue(propertyRequestString, PropertyRequest.class);
-            // FIX: Use jwt.getSubject() (the ID)
             String userId = jwt.getSubject();
             Property updatedProperty = propertyService.updateProperty(id, request, images, userId);
             return ResponseEntity.ok(updatedProperty);
@@ -74,28 +71,23 @@ public class PropertyController {
         }
     }
 
-    // 3. GET MY PROPERTIES
     @GetMapping("/my")
     public ResponseEntity<Page<Property>> getMyProperties(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size
     ) {
-        // FIX: Use jwt.getSubject()
         String userId = jwt.getSubject();
         Pageable pageable = PageRequest.of(page, size);
         return ResponseEntity.ok(propertyService.getPropertiesByUser(userId, pageable));
     }
 
-    // 4. DELETE PROPERTY
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteProperty(@PathVariable Long id, @AuthenticationPrincipal Jwt jwt) {
-        // FIX: Use jwt.getSubject()
         propertyService.deleteProperty(id, jwt.getSubject());
         return ResponseEntity.noContent().build();
     }
 
-    // 5. SERVE IMAGES
     @GetMapping("/images/{filename:.+}")
     public ResponseEntity<Resource> serveFile(@PathVariable String filename) {
         try {
@@ -122,8 +114,9 @@ public class PropertyController {
         return ResponseEntity.ok(propertyService.getPropertyById(id));
     }
 
+    // --- UPDATED FEED ENDPOINT ---
     @GetMapping("/feed")
-    public ResponseEntity<List<Property>> getFeed(@AuthenticationPrincipal Jwt jwt) {
+    public ResponseEntity<List<PropertyFeedResponse>> getFeed(@AuthenticationPrincipal Jwt jwt) {
         return ResponseEntity.ok(propertyService.getFeedForUser(jwt.getSubject()));
     }
 }

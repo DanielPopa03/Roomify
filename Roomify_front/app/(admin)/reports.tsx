@@ -1,424 +1,331 @@
-import React, { useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+    View,
+    Text,
+    FlatList,
+    StyleSheet,
+    TouchableOpacity,
+    ActivityIndicator,
+    ScrollView,
+    Modal,
+    Pressable,
+    Alert
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-import { Header, Card, Button, Avatar, EmptyState } from '@/components/ui';
+import { Card, Avatar, EmptyState } from '@/components/ui';
 import { Blue, Neutral, Typography, Spacing, BorderRadius, Shadows } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 
-// Mock reports data
-const MOCK_REPORTS = [
-    { 
-        id: '1', 
-        reportedUser: 'Mike Johnson',
-        reportedUserAvatar: 'https://randomuser.me/api/portraits/men/45.jpg',
-        reportedBy: 'Sarah Williams',
-        reason: 'Inappropriate behavior', 
-        description: 'User was sending inappropriate messages during property viewing.',
-        category: 'behavior',
-        status: 'pending',
-        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2),
-    },
-    { 
-        id: '2', 
-        reportedUser: 'Jane Smith',
-        reportedUserAvatar: 'https://randomuser.me/api/portraits/women/22.jpg',
-        reportedBy: 'Tom Hardy',
-        reason: 'Fake listing', 
-        description: 'The listed property does not exist at the given address.',
-        category: 'listing',
-        status: 'pending',
-        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24),
-    },
-    { 
-        id: '3', 
-        reportedUser: 'John Doe',
-        reportedUserAvatar: 'https://randomuser.me/api/portraits/men/32.jpg',
-        reportedBy: 'Emily Davis',
-        reason: 'Spam', 
-        description: 'User is sending the same message to all landlords.',
-        category: 'spam',
-        status: 'resolved',
-        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 48),
-    },
-    { 
-        id: '4', 
-        reportedUser: 'Alex Brown',
-        reportedUserAvatar: 'https://randomuser.me/api/portraits/men/52.jpg',
-        reportedBy: 'Lisa Chen',
-        reason: 'Harassment', 
-        description: 'User continued messaging after being asked to stop.',
-        category: 'behavior',
-        status: 'pending',
-        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 72),
-    },
-];
-
-const FILTERS = [
-    { id: 'all', label: 'All' },
-    { id: 'pending', label: 'Pending' },
-    { id: 'resolved', label: 'Resolved' },
-];
-
 export default function ReportsScreen() {
-    const router = useRouter();
     const insets = useSafeAreaInsets();
-    const { user } = useAuth();
-    
-    const [reports, setReports] = useState(MOCK_REPORTS);
-    const [activeFilter, setActiveFilter] = useState('all');
-    
-    const filteredReports = reports.filter(r => {
-        if (activeFilter === 'all') return true;
-        return r.status === activeFilter;
-    });
-    
-    const handleResolve = (reportId: string) => {
-        Alert.alert(
-            'Resolve Report',
-            'Mark this report as resolved?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                { 
-                    text: 'Resolve', 
-                    onPress: () => {
-                        setReports(prev => 
-                            prev.map(r => r.id === reportId ? { ...r, status: 'resolved' } : r)
-                        );
-                    }
+    const { getAccessToken } = useAuth();
+
+    const [reports, setReports] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [activeFilter, setActiveFilter] = useState('PENDING');
+
+    // --- Modal State ---
+    const [modalVisible, setModalVisible] = useState(false);
+    const [selectedReport, setSelectedReport] = useState<any>(null);
+
+    const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
+
+    const fetchReports = useCallback(async () => {
+        try {
+            setLoading(true);
+            const token = await getAccessToken();
+            const response = await fetch(`http://${MY_IP}:8080/api/reports`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                setReports(data);
+            }
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setLoading(false);
+        }
+    }, [getAccessToken, MY_IP]);
+
+    useEffect(() => { fetchReports(); }, [fetchReports]);
+
+    const openResolveModal = (report: any) => {
+        setSelectedReport(report);
+        setModalVisible(true);
+    };
+
+    // 1. EXECUTE ACTIONS
+    const executeAction = async (actionType: 'RESOLVE' | 'DISMISS', payload?: string) => {
+        if (!selectedReport) return;
+        setModalVisible(false);
+
+        const token = await getAccessToken();
+        let url = '';
+        let method = 'PUT';
+
+        try {
+            if (actionType === 'DISMISS') {
+                // Call Dismiss Endpoint
+                url = `http://${MY_IP}:8080/api/reports/${selectedReport.id}/dismiss`;
+
+                const res = await fetch(url, {
+                    method: 'PUT',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (res.ok) {
+                    setReports(prev => prev.map(r => r.id === selectedReport.id ? { ...r, status: 'DISMISSED' } : r));
                 }
-            ]
-        );
-    };
-    
-    const handleDelete = (reportId: string) => {
-        Alert.alert(
-            'Delete Report',
-            'Are you sure you want to delete this report?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                { 
-                    text: 'Delete', 
-                    style: 'destructive',
-                    onPress: () => {
-                        setReports(prev => prev.filter(r => r.id !== reportId));
-                    }
+            } else {
+                // Call Resolve Endpoint (payload = NONE, BAN, PENALIZE)
+                url = `http://${MY_IP}:8080/api/reports/${selectedReport.id}/resolve?action=${payload}`;
+
+                const res = await fetch(url, {
+                    method: 'PUT',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (res.ok) {
+                    setReports(prev => prev.map(r => r.id === selectedReport.id ? { ...r, status: 'RESOLVED' } : r));
                 }
-            ]
-        );
-    };
-    
-    const handleBanUser = (userName: string) => {
-        Alert.alert(
-            'Ban User',
-            `Are you sure you want to ban ${userName}?`,
-            [
-                { text: 'Cancel', style: 'cancel' },
-                { 
-                    text: 'Ban User', 
-                    style: 'destructive',
-                    onPress: () => {
-                        Alert.alert('Success', `${userName} has been banned.`);
-                    }
-                }
-            ]
-        );
-    };
-    
-    const formatTime = (date: Date) => {
-        const now = new Date();
-        const diff = now.getTime() - date.getTime();
-        const hours = Math.floor(diff / (1000 * 60 * 60));
-        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-        
-        if (hours < 1) return 'Just now';
-        if (hours < 24) return `${hours}h ago`;
-        return `${days}d ago`;
-    };
-    
-    const getCategoryColor = (category: string) => {
-        switch (category) {
-            case 'behavior': return '#EF4444';
-            case 'listing': return '#F59E0B';
-            case 'spam': return '#6366F1';
-            default: return Neutral[500];
+            }
+        } catch (error) {
+            console.error("Action failed", error);
+        } finally {
+            setSelectedReport(null);
         }
     };
 
+    // 2. DELETE (Hard Delete)
+    const handleDelete = async (reportId: string) => {
+        try {
+            const token = await getAccessToken();
+            const res = await fetch(`http://${MY_IP}:8080/api/reports/${reportId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                setReports(prev => prev.filter(r => r.id !== reportId));
+            }
+        } catch (error) {
+            console.error("Failed to delete report", error);
+        }
+    };
+
+    const filteredReports = reports.filter(r => activeFilter === 'ALL' ? true : r.status === activeFilter);
+
+    const getCategoryColor = (reason: string) => {
+        if (!reason) return Blue[500];
+        if (reason.includes('HARASSMENT') || reason.includes('SCAM')) return '#EF4444';
+        return Blue[500];
+    };
+
+    const renderItem = ({ item }: { item: any }) => (
+        <Card elevation={2} style={styles.card}>
+            <View style={styles.header}>
+                <View style={{flexDirection:'row', alignItems:'center', gap: 10}}>
+                    <Avatar uri={item.reportedUser?.picture} name={item.reportedUser?.firstName || 'User'} size={40} />
+                    <View>
+                        <Text style={styles.name}>{item.reportedUser?.firstName} {item.reportedUser?.lastName}</Text>
+                        <Text style={styles.date}>{new Date(item.createdAt).toLocaleDateString()}</Text>
+                    </View>
+                </View>
+                <View style={[styles.badge,
+                    item.status === 'PENDING' ? styles.badgePending :
+                        item.status === 'DISMISSED' ? styles.badgeDismissed : styles.badgeResolved
+                ]}>
+                    <Text style={[styles.badgeText, {
+                        color: item.status === 'PENDING' ? '#D97706' :
+                            item.status === 'DISMISSED' ? Neutral[600] : '#16A34A'
+                    }]}>{item.status}</Text>
+                </View>
+            </View>
+
+            <View style={styles.body}>
+                <View style={[styles.reasonChip, { backgroundColor: getCategoryColor(item.reason) + '20' }]}>
+                    <Text style={[styles.reasonText, { color: getCategoryColor(item.reason) }]}>{item.reason}</Text>
+                </View>
+                <Text style={styles.desc}>{item.description}</Text>
+                {item.contentSnapshot && (
+                    <View style={styles.snapshot}>
+                        <Text style={styles.snapshotLabel}>Context:</Text>
+                        <Text style={styles.snapshotText}>"{item.contentSnapshot}"</Text>
+                    </View>
+                )}
+                <Text style={styles.reporter}>Reported by: {item.reporter?.firstName}</Text>
+            </View>
+
+            {item.status === 'PENDING' && (
+                <View style={styles.actions}>
+                    {/* RESOLVE BUTTON (Opens Modal containing Dismiss/Resolve/Ban) */}
+                    <TouchableOpacity style={styles.btn} onPress={() => openResolveModal(item)}>
+                        <Ionicons name="shield-checkmark" size={18} color={Blue[600]} />
+                        <Text style={[styles.btnText, { color: Blue[600] }]}>Resolve Report...</Text>
+                    </TouchableOpacity>
+
+                    {/* DELETE BUTTON (Hard Delete) */}
+                    <TouchableOpacity style={styles.btnIconOnly} onPress={() => handleDelete(item.id)}>
+                        <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                    </TouchableOpacity>
+                </View>
+            )}
+
+            {/* Clean up non-pending items */}
+            {item.status !== 'PENDING' && (
+                <View style={styles.actions}>
+                    <View style={{flex: 1}} />
+                    <TouchableOpacity style={styles.btn} onPress={() => handleDelete(item.id)}>
+                        <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                        <Text style={[styles.btnText, { color: '#EF4444' }]}>Delete Permanently</Text>
+                    </TouchableOpacity>
+                </View>
+            )}
+        </Card>
+    );
+
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
-            {/* Header */}
-            <View style={styles.header}>
-                <Text style={styles.headerTitle}>Reports</Text>
-                <Text style={styles.headerSubtitle}>
-                    {reports.filter(r => r.status === 'pending').length} pending
-                </Text>
+            <View style={styles.topBar}>
+                <Text style={styles.title}>Reports</Text>
             </View>
-            
-            {/* Filters */}
-            <View style={styles.filterContainer}>
-                <ScrollView 
-                    horizontal 
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.filterScroll}
-                >
-                    {FILTERS.map(filter => (
-                        <TouchableOpacity
-                            key={filter.id}
-                            style={[
-                                styles.filterChip,
-                                activeFilter === filter.id && styles.filterChipActive
-                            ]}
-                            onPress={() => setActiveFilter(filter.id)}
-                        >
-                            <Text style={[
-                                styles.filterChipText,
-                                activeFilter === filter.id && styles.filterChipTextActive
-                            ]}>
-                                {filter.label}
-                            </Text>
+            <View style={styles.tabs}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{padding: 16}}>
+                    {['ALL', 'PENDING', 'RESOLVED', 'DISMISSED'].map(f => (
+                        <TouchableOpacity key={f} style={[styles.tab, activeFilter === f && styles.tabActive]} onPress={() => setActiveFilter(f)}>
+                            <Text style={[styles.tabText, activeFilter === f && styles.tabTextActive]}>{f}</Text>
                         </TouchableOpacity>
                     ))}
                 </ScrollView>
             </View>
-            
-            {filteredReports.length === 0 ? (
-                <EmptyState 
-                    icon="flag-outline"
-                    title="No reports"
-                    description="There are no reports to review at this time."
-                />
-            ) : (
-                <FlatList
-                    data={filteredReports}
-                    keyExtractor={item => item.id}
-                    renderItem={({ item }) => (
-                        <Card elevation={2} style={styles.reportCard}>
-                            {/* Header */}
-                            <View style={styles.reportHeader}>
-                                <View style={styles.reportUser}>
-                                    <Avatar 
-                                        uri={item.reportedUserAvatar} 
-                                        name={item.reportedUser} 
-                                        size={44} 
-                                    />
-                                    <View>
-                                        <Text style={styles.reportUserName}>{item.reportedUser}</Text>
-                                        <Text style={styles.reportTime}>{formatTime(item.createdAt)}</Text>
-                                    </View>
-                                </View>
-                                <View style={[
-                                    styles.statusBadge,
-                                    item.status === 'pending' ? styles.statusPending : styles.statusResolved
-                                ]}>
-                                    <Text style={[
-                                        styles.statusText,
-                                        item.status === 'pending' ? styles.statusTextPending : styles.statusTextResolved
-                                    ]}>
-                                        {item.status === 'pending' ? 'Pending' : 'Resolved'}
-                                    </Text>
-                                </View>
-                            </View>
-                            
-                            {/* Report Details */}
-                            <View style={styles.reportDetails}>
-                                <View style={styles.reasonRow}>
-                                    <View style={[
-                                        styles.categoryBadge,
-                                        { backgroundColor: getCategoryColor(item.category) + '20' }
-                                    ]}>
-                                        <Text style={[
-                                            styles.categoryText,
-                                            { color: getCategoryColor(item.category) }
-                                        ]}>
-                                            {item.reason}
-                                        </Text>
-                                    </View>
-                                </View>
-                                <Text style={styles.description}>{item.description}</Text>
-                                <Text style={styles.reportedBy}>
-                                    Reported by: {item.reportedBy}
-                                </Text>
-                            </View>
-                            
-                            {/* Actions */}
-                            {item.status === 'pending' && (
-                                <View style={styles.actions}>
-                                    <TouchableOpacity 
-                                        style={styles.actionButton}
-                                        onPress={() => handleResolve(item.id)}
-                                    >
-                                        <Ionicons name="checkmark-circle" size={18} color="#10B981" />
-                                        <Text style={[styles.actionText, { color: '#10B981' }]}>Resolve</Text>
-                                    </TouchableOpacity>
-                                    
-                                    <TouchableOpacity 
-                                        style={styles.actionButton}
-                                        onPress={() => handleBanUser(item.reportedUser)}
-                                    >
-                                        <Ionicons name="ban" size={18} color="#EF4444" />
-                                        <Text style={[styles.actionText, { color: '#EF4444' }]}>Ban User</Text>
-                                    </TouchableOpacity>
-                                    
-                                    <TouchableOpacity 
-                                        style={styles.actionButton}
-                                        onPress={() => handleDelete(item.id)}
-                                    >
-                                        <Ionicons name="trash-outline" size={18} color={Neutral[500]} />
-                                        <Text style={[styles.actionText, { color: Neutral[500] }]}>Delete</Text>
-                                    </TouchableOpacity>
-                                </View>
-                            )}
-                        </Card>
-                    )}
-                    contentContainerStyle={styles.listContent}
-                    showsVerticalScrollIndicator={false}
-                />
-            )}
+
+            {loading ? <ActivityIndicator style={{marginTop:20}} /> :
+                filteredReports.length === 0 ? <EmptyState icon="flag-outline" title="No reports" description="All caught up!" /> :
+                    <FlatList data={filteredReports} keyExtractor={i => i.id} renderItem={renderItem} contentContainerStyle={{padding: 16}} />
+            }
+
+            {/* --- ACTION MODAL --- */}
+            <Modal
+                transparent={true}
+                visible={modalVisible}
+                animationType="fade"
+                onRequestClose={() => setModalVisible(false)}
+            >
+                <Pressable style={styles.modalOverlay} onPress={() => setModalVisible(false)}>
+                    <Pressable style={styles.modalContent} onPress={e => e.stopPropagation()}>
+                        <Text style={styles.modalTitle}>Handle Report</Text>
+                        <Text style={styles.modalSubtitle}>
+                            Select an outcome for: {selectedReport?.reportedUser?.firstName}
+                        </Text>
+
+                        {/* OPTION 1: DISMISS */}
+                        <TouchableOpacity
+                            style={[styles.modalBtn, { backgroundColor: Neutral[100] }]}
+                            onPress={() => executeAction('DISMISS')}
+                        >
+                            <Ionicons name="close-circle" size={20} color={Neutral[600]} />
+                            <Text style={[styles.modalBtnText, { color: Neutral[600] }]}>Dismiss (Mark Invalid)</Text>
+                        </TouchableOpacity>
+
+                        {/* OPTION 2: RESOLVE (NO ACTION) */}
+                        <TouchableOpacity
+                            style={[styles.modalBtn, { backgroundColor: Blue[50] }]}
+                            onPress={() => executeAction('RESOLVE', 'NONE')}
+                        >
+                            <Ionicons name="checkmark-circle" size={20} color={Blue[600]} />
+                            <Text style={[styles.modalBtnText, { color: Blue[600] }]}>Resolve (No Penalty)</Text>
+                        </TouchableOpacity>
+
+                        {/* OPTION 3: PENALIZE */}
+                        <TouchableOpacity
+                            style={[styles.modalBtn, { backgroundColor: '#FEF3C7' }]}
+                            onPress={() => executeAction('RESOLVE', 'PENALIZE')}
+                        >
+                            <Ionicons name="thumbs-down" size={20} color="#D97706" />
+                            <Text style={[styles.modalBtnText, { color: '#D97706' }]}>Penalize Score (-1)</Text>
+                        </TouchableOpacity>
+
+                        {/* OPTION 4: BAN */}
+                        <TouchableOpacity
+                            style={[styles.modalBtn, { backgroundColor: '#FEE2E2' }]}
+                            onPress={() => executeAction('RESOLVE', 'BAN')}
+                        >
+                            <Ionicons name="ban" size={20} color="#EF4444" />
+                            <Text style={[styles.modalBtnText, { color: '#EF4444' }]}>Ban User</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[styles.modalBtn, { marginTop: 10, borderTopWidth: 1, borderColor: Neutral[200], borderRadius: 0, backgroundColor: 'transparent' }]}
+                            onPress={() => setModalVisible(false)}
+                        >
+                            <Text style={{ color: Neutral[500], fontWeight: '600' }}>Cancel</Text>
+                        </TouchableOpacity>
+                    </Pressable>
+                </Pressable>
+            </Modal>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
+    container: { flex: 1, backgroundColor: Neutral[50] },
+    topBar: { padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderColor: Neutral[100] },
+    title: { fontSize: 24, fontWeight: 'bold', color: Neutral[900] },
+    tabs: { backgroundColor: '#fff', borderBottomWidth: 1, borderColor: Neutral[100] },
+    tab: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, backgroundColor: Neutral[100], marginRight: 8 },
+    tabActive: { backgroundColor: Blue[600] },
+    tabText: { fontSize: 14, color: Neutral[600], fontWeight: '500' },
+    tabTextActive: { color: '#fff' },
+    card: { marginBottom: 12, padding: 16 },
+    header: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
+    name: { fontSize: 16, fontWeight: '600' },
+    date: { fontSize: 12, color: Neutral[500] },
+    badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+    badgePending: { backgroundColor: '#FEF3C7' },
+    badgeResolved: { backgroundColor: '#DCFCE7' },
+    badgeDismissed: { backgroundColor: Neutral[200] },
+    badgeText: { fontSize: 12, fontWeight: '700' },
+    body: { marginBottom: 12 },
+    reasonChip: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, marginBottom: 8 },
+    reasonText: { fontSize: 12, fontWeight: '600' },
+    desc: { color: Neutral[700], fontSize: 14, lineHeight: 20 },
+    snapshot: { marginTop: 8, padding: 8, backgroundColor: Neutral[100], borderLeftWidth: 3, borderLeftColor: Blue[400], borderRadius: 4 },
+    snapshotLabel: { fontSize: 10, fontWeight: 'bold', color: Neutral[500] },
+    snapshotText: { fontSize: 12, fontStyle: 'italic', color: Neutral[800] },
+    reporter: { marginTop: 8, fontSize: 12, color: Neutral[400] },
+    actions: { flexDirection: 'row', borderTopWidth: 1, borderColor: Neutral[100], paddingTop: 12, gap: 12, alignItems: 'center' },
+    btn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    btnIconOnly: { padding: 4, marginLeft: 'auto' }, // Pushes trash icon to the right
+    btnText: { fontSize: 14, fontWeight: '600' },
+
+    // Modal Styles
+    modalOverlay: {
         flex: 1,
-        backgroundColor: Neutral[50],
-    },
-    header: {
-        paddingHorizontal: Spacing.base,
-        paddingVertical: Spacing.lg,
-        backgroundColor: '#FFFFFF',
-        borderBottomWidth: 1,
-        borderBottomColor: Neutral[100],
-    },
-    headerTitle: {
-        fontSize: Typography.size.xl,
-        fontWeight: Typography.weight.bold,
-        color: Neutral[900],
-    },
-    headerSubtitle: {
-        fontSize: Typography.size.sm,
-        color: Neutral[500],
-        marginTop: 4,
-    },
-    filterContainer: {
-        backgroundColor: '#FFFFFF',
-        borderBottomWidth: 1,
-        borderBottomColor: Neutral[100],
-    },
-    filterScroll: {
-        paddingHorizontal: Spacing.base,
-        paddingVertical: Spacing.sm,
-    },
-    filterChip: {
-        paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.sm,
-        borderRadius: BorderRadius.full,
-        backgroundColor: Neutral[100],
-        marginRight: Spacing.sm,
-    },
-    filterChipActive: {
-        backgroundColor: Blue[600],
-    },
-    filterChipText: {
-        fontSize: Typography.size.sm,
-        color: Neutral[600],
-        fontWeight: Typography.weight.medium,
-    },
-    filterChipTextActive: {
-        color: '#FFFFFF',
-    },
-    listContent: {
-        padding: Spacing.base,
-        paddingBottom: 100,
-    },
-    reportCard: {
-        padding: Spacing.md,
-        marginBottom: Spacing.sm,
-    },
-    reportHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'center',
         alignItems: 'center',
-        marginBottom: Spacing.md,
+        padding: 20
     },
-    reportUser: {
+    modalContent: {
+        backgroundColor: 'white',
+        width: '100%',
+        maxWidth: 320,
+        borderRadius: 16,
+        padding: 20,
+        ...Shadows.lg
+    },
+    modalTitle: { fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 8 },
+    modalSubtitle: { fontSize: 14, color: Neutral[500], textAlign: 'center', marginBottom: 20 },
+    modalBtn: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: Spacing.sm,
+        justifyContent: 'center',
+        paddingVertical: 12,
+        borderRadius: 8,
+        marginBottom: 8,
+        gap: 8
     },
-    reportUserName: {
-        fontSize: Typography.size.base,
-        fontWeight: Typography.weight.semibold,
-        color: Neutral[900],
-    },
-    reportTime: {
-        fontSize: Typography.size.xs,
-        color: Neutral[500],
-    },
-    statusBadge: {
-        paddingHorizontal: Spacing.sm,
-        paddingVertical: 4,
-        borderRadius: BorderRadius.full,
-    },
-    statusPending: {
-        backgroundColor: '#FEF3C7',
-    },
-    statusResolved: {
-        backgroundColor: '#DCFCE7',
-    },
-    statusText: {
-        fontSize: Typography.size.xs,
-        fontWeight: Typography.weight.medium,
-    },
-    statusTextPending: {
-        color: '#D97706',
-    },
-    statusTextResolved: {
-        color: '#16A34A',
-    },
-    reportDetails: {
-        marginBottom: Spacing.md,
-    },
-    reasonRow: {
-        marginBottom: Spacing.sm,
-    },
-    categoryBadge: {
-        alignSelf: 'flex-start',
-        paddingHorizontal: Spacing.sm,
-        paddingVertical: 4,
-        borderRadius: BorderRadius.md,
-    },
-    categoryText: {
-        fontSize: Typography.size.sm,
-        fontWeight: Typography.weight.medium,
-    },
-    description: {
-        fontSize: Typography.size.sm,
-        color: Neutral[700],
-        lineHeight: 20,
-    },
-    reportedBy: {
-        fontSize: Typography.size.xs,
-        color: Neutral[500],
-        marginTop: Spacing.sm,
-    },
-    actions: {
-        flexDirection: 'row',
-        borderTopWidth: 1,
-        borderTopColor: Neutral[100],
-        paddingTop: Spacing.md,
-        gap: Spacing.lg,
-    },
-    actionButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-    },
-    actionText: {
-        fontSize: Typography.size.sm,
-        fontWeight: Typography.weight.medium,
-    },
+    modalBtnText: { fontWeight: '600', fontSize: 14 }
 });

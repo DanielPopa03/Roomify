@@ -18,14 +18,41 @@ import { Blue, BorderRadius, Neutral, Spacing, Typography, Shadows } from '@/con
 import { useAuth } from '@/context/AuthContext';
 import { UsersApi, InterviewApi, PublicUserProfile } from '@/services/api';
 import { SafeImage } from '@/components/ui';
+
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// --- MISSING COMPONENT DEFINITION ---
+const LifestyleBadges = ({ smokerFriendly, petFriendly }: { smokerFriendly?: boolean | null, petFriendly?: boolean | null }) => {
+    // If both are false/null, show a fallback message
+    if (!smokerFriendly && !petFriendly) {
+        return <Text style={{ color: Neutral[500], fontSize: Typography.size.sm }}>No specific preferences listed.</Text>;
+    }
+
+    return (
+        <View style={styles.badgesContainer}>
+            {smokerFriendly && (
+                <View style={[styles.badge, { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }]}>
+                    <Ionicons name="flame-outline" size={14} color={Blue[600]} />
+                    <Text style={[styles.badgeText, { color: Blue[700] }]}>Smoker</Text>
+                </View>
+            )}
+            {petFriendly && (
+                <View style={[styles.badge, { backgroundColor: '#ECFDF5', borderColor: '#6EE7B7' }]}>
+                    <Ionicons name="paw-outline" size={14} color="#059669" />
+                    <Text style={[styles.badgeText, { color: '#059669' }]}>Has Pets</Text>
+                </View>
+            )}
+        </View>
+    );
+};
+// ------------------------------------
 
 export default function PublicUserProfileScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const { id, matchId } = useLocalSearchParams<{ id: string; matchId?: string }>();
     const { user, getAccessToken } = useAuth();
-    
+
     const [profile, setProfile] = useState<PublicUserProfile | null>(null);
     const [loading, setLoading] = useState(true);
     const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -77,7 +104,6 @@ export default function PublicUserProfileScreen() {
                 });
                 if (!res.ok) return;
                 const info = await res.json();
-                // Compare to last seen info to avoid repeated refreshes
                 const prev = lastInfoRef.current;
                 const shouldRefresh = !prev || info?.tenantMessaged !== prev?.tenantMessaged || info?.timeLeftSeconds !== prev?.timeLeftSeconds;
                 if (shouldRefresh) {
@@ -142,7 +168,7 @@ export default function PublicUserProfileScreen() {
                 <View style={{ width: 40 }} />
             </View>
 
-            <ScrollView 
+            <ScrollView
                 style={styles.scrollView}
                 contentContainerStyle={[
                     styles.scrollContent,
@@ -152,8 +178,8 @@ export default function PublicUserProfileScreen() {
             >
                 <View style={styles.section}>
                     <View style={styles.avatarContainer}>
-                        <SafeImage 
-                            source={{ 
+                        <SafeImage
+                            source={{
                                 uri: `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.firstName || 'U')}&size=200&background=0284C7&color=fff`
                             }}
                             style={styles.avatar}
@@ -167,7 +193,6 @@ export default function PublicUserProfileScreen() {
                         </View>
                     )}
 
-                    {/* If opened from a chat (matchId present) we show a simplified contact-focused view */}
                     {matchId && (
                         <View style={styles.section}>
                             <Text style={styles.sectionTitle}>Contact</Text>
@@ -184,13 +209,12 @@ export default function PublicUserProfileScreen() {
                     </View>
                 )}
 
-                {/* Hide lifestyle and video when opened from chat (we only show contact + bio in that context) */}
                 {!matchId && (
                     <View style={styles.section}>
                         <Text style={styles.sectionTitle}>Lifestyle Preferences</Text>
-                        <LifestyleBadges 
-                            smokerFriendly={profile.isSmoker} 
-                            petFriendly={profile.hasPets} 
+                        <LifestyleBadges
+                            smokerFriendly={profile.isSmoker}
+                            petFriendly={profile.hasPets}
                         />
                     </View>
                 )}
@@ -269,14 +293,25 @@ const styles = StyleSheet.create({
     lockIconContainer: { width: 56, height: 56, borderRadius: 28, backgroundColor: Neutral[400], alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.md },
     lockedTitle: { fontSize: Typography.size.base, fontWeight: '700', color: Neutral[900], marginBottom: Spacing.xs },
     lockedSubtext: { fontSize: Typography.size.sm, color: Neutral[600], textAlign: 'center' },
-
-    // Seriousness
-    seriousnessContainer: { marginTop: Spacing.md, alignItems: 'center' },
-    seriousnessLabel: { fontSize: Typography.size.xs, color: Neutral[500], marginBottom: Spacing.xs },
-    seriousnessBadge: { minWidth: 48, paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-    seriousnessText: { color: '#fff', fontWeight: '700' },
-    positive: { backgroundColor: '#059669' },
-    negative: { backgroundColor: '#B91C1C' },
-    neutral: { backgroundColor: '#6B7280' },
     contactText: { fontSize: Typography.size.base, color: Neutral[700], marginTop: Spacing.xs },
+
+    // --- NEW STYLES FOR BADGES ---
+    badgesContainer: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: Spacing.sm,
+    },
+    badge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: Spacing.md,
+        paddingVertical: Spacing.xs,
+        borderRadius: BorderRadius.full,
+        borderWidth: 1,
+        gap: Spacing.xs,
+    },
+    badgeText: {
+        fontSize: Typography.size.sm,
+        fontWeight: '600',
+    },
 });
