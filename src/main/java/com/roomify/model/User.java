@@ -81,8 +81,8 @@ public class User {
     // --- REPORTING & MODERATION ---
 
     @Builder.Default
-    @Column(name = "seriousness_score", columnDefinition = "integer default 100")
-    private Integer seriousnessScore = 100; // Starts at 100, decreases with penalties
+    @Column(name = "seriousness_score", columnDefinition = "integer default 0")
+    private Integer seriousnessScore = 0; // Starts at 0; increases/decreases with interactions
 
     @Builder.Default
     @Column(name = "is_banned", nullable = false, columnDefinition = "boolean default false")
