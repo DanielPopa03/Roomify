@@ -1,467 +1,318 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, Alert, TextInput, ScrollView, RefreshControl, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+    View,
+    Text,
+    FlatList,
+    StyleSheet,
+    TouchableOpacity,
+    TextInput,
+    ActivityIndicator,
+    Modal,
+    Pressable,
+    Switch,
+    KeyboardAvoidingView,
+    Platform
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-import { Header, Card, Button, Avatar, EmptyState } from '@/components/ui';
+import { Card, Avatar, EmptyState } from '@/components/ui';
 import { Blue, Neutral, Typography, Spacing, BorderRadius, Shadows } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
-import { useAdminUsers, useAdminMutations } from '@/hooks/useApi';
-
-// Mock users data (fallback)
-const MOCK_USERS = [
-    { 
-        id: '1', 
-        name: 'John Doe', 
-        email: 'john@example.com', 
-        avatar: 'https://randomuser.me/api/portraits/men/32.jpg',
-        role: 'tenant',
-        status: 'active',
-        joinedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30),
-    },
-    { 
-        id: '2', 
-        name: 'Jane Smith', 
-        email: 'jane@example.com', 
-        avatar: 'https://randomuser.me/api/portraits/women/44.jpg',
-        role: 'landlord',
-        status: 'active',
-        joinedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 60),
-    },
-    { 
-        id: '3', 
-        name: 'Mike Johnson', 
-        email: 'mike@example.com', 
-        avatar: 'https://randomuser.me/api/portraits/men/45.jpg',
-        role: 'tenant',
-        status: 'active',
-        joinedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 15),
-    },
-    { 
-        id: '4', 
-        name: 'Sarah Williams', 
-        email: 'sarah@example.com', 
-        avatar: 'https://randomuser.me/api/portraits/women/68.jpg',
-        role: 'admin',
-        status: 'active',
-        joinedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 90),
-    },
-    { 
-        id: '5', 
-        name: 'Tom Hardy', 
-        email: 'tom@example.com', 
-        avatar: 'https://randomuser.me/api/portraits/men/52.jpg',
-        role: 'landlord',
-        status: 'suspended',
-        joinedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 45),
-    },
-];
-
-const ROLE_OPTIONS = [
-    { id: 'all', label: 'All' },
-    { id: 'tenant', label: 'Tenants' },
-    { id: 'landlord', label: 'Landlords' },
-    { id: 'admin', label: 'Admins' },
-];
 
 export default function RolesScreen() {
-    const router = useRouter();
     const insets = useSafeAreaInsets();
-    const { user } = useAuth();
-    
-    // API hooks
-    const { data: apiUsers, isLoading, error, refetch } = useAdminUsers();
-    const { updateUserRole } = useAdminMutations();
-    
-    const [users, setUsers] = useState(MOCK_USERS);
-    const [activeFilter, setActiveFilter] = useState('all');
-    const [searchQuery, setSearchQuery] = useState('');
-    const [refreshing, setRefreshing] = useState(false);
-    
-    // Update users when API data arrives
-    useEffect(() => {
-        if (apiUsers && apiUsers.length > 0) {
-            setUsers(apiUsers.map(u => ({
-                id: u.id,
-                name: u.firstName || u.email?.split('@')[0] || 'Unknown',
-                email: u.email || '',
-                avatar: `https://randomuser.me/api/portraits/${Math.random() > 0.5 ? 'men' : 'women'}/${Math.floor(Math.random() * 99)}.jpg`,
-                role: u.role?.name?.toLowerCase() || 'tenant',
-                status: 'active',
-                joinedAt: new Date(u.createdAt || Date.now()),
-            })));
-        }
-    }, [apiUsers]);
-    
-    const onRefresh = async () => {
-        setRefreshing(true);
-        await refetch();
-        setRefreshing(false);
+    const { getAccessToken } = useAuth();
+
+    const [users, setUsers] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [search, setSearch] = useState('');
+
+    // --- Modal State ---
+    const [modalVisible, setModalVisible] = useState(false);
+    const [selectedUser, setSelectedUser] = useState<any>(null);
+
+    // Edit Form State
+    const [editRole, setEditRole] = useState<string>('');
+    const [editScore, setEditScore] = useState<string>('0');
+    const [editIsBanned, setEditIsBanned] = useState<boolean>(false);
+    const [saving, setSaving] = useState(false);
+
+    const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
+
+    // --- ROLE MAPPING HELPERS ---
+
+    // 1. DB -> UI: Map 'USER' (or 'NORMAL') to 'TENANT' for display
+    const getUiRole = (dbRole: string) => {
+        if (!dbRole) return 'TENANT';
+        if (dbRole === 'USER' || dbRole === 'NORMAL') return 'TENANT';
+        return dbRole; // LANDLORD, ADMIN
     };
-    
-    const filteredUsers = users.filter(u => {
-        const matchesFilter = activeFilter === 'all' || u.role === activeFilter;
-        const matchesSearch = u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                            u.email.toLowerCase().includes(searchQuery.toLowerCase());
-        return matchesFilter && matchesSearch;
+
+    // 2. UI -> DB: Map 'TENANT' back to the actual DB Role Name
+    // CHANGE 'USER' TO 'NORMAL' HERE IF YOUR DB ROLE IS TRULY 'NORMAL'
+    const getDbRole = (uiRole: string) => {
+        if (uiRole === 'TENANT') return 'USER';
+        return uiRole;
+    };
+
+    const fetchUsers = useCallback(async () => {
+        try {
+            setLoading(true);
+            const token = await getAccessToken();
+            const response = await fetch(`http://${MY_IP}:8080/api/admin/users`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                setUsers(data);
+            }
+        } catch (error) { console.error(error); }
+        finally { setLoading(false); }
+    }, [getAccessToken, MY_IP]);
+
+    useEffect(() => { fetchUsers(); }, [fetchUsers]);
+
+    const openEditModal = (user: any) => {
+        setSelectedUser(user);
+        // Map DB role to UI role (e.g., USER -> TENANT)
+        setEditRole(getUiRole(user.role?.name));
+        setEditScore(String(user.seriousnessScore ?? 0));
+        setEditIsBanned(user.isBanned === true);
+        setModalVisible(true);
+    };
+
+    const handleSaveChanges = async () => {
+        if (!selectedUser) return;
+        setSaving(true);
+
+        try {
+            const token = await getAccessToken();
+            const headers = {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            };
+
+            const promises = [];
+
+            // A. Update Role
+            const targetDbRole = getDbRole(editRole); // Converts TENANT -> USER
+            const currentDbRole = selectedUser.role?.name || 'USER';
+
+            if (targetDbRole !== currentDbRole) {
+                promises.push(
+                    fetch(`http://${MY_IP}:8080/api/admin/users/${selectedUser.id}/role`, {
+                        method: 'PUT',
+                        headers,
+                        body: JSON.stringify({ role: targetDbRole })
+                    })
+                );
+            }
+
+            // B. Update Ban Status
+            if (editIsBanned !== selectedUser.isBanned) {
+                promises.push(
+                    fetch(`http://${MY_IP}:8080/api/admin/users/${selectedUser.id}/ban`, {
+                        method: 'PUT',
+                        headers
+                    })
+                );
+            }
+
+            // C. Update Score
+            const numScore = parseInt(editScore, 10);
+            const currentScore = selectedUser.seriousnessScore ?? 0;
+            if (!isNaN(numScore) && numScore !== currentScore) {
+                promises.push(
+                    fetch(`http://${MY_IP}:8080/api/admin/users/${selectedUser.id}/score`, {
+                        method: 'PUT',
+                        headers,
+                        body: JSON.stringify({ score: numScore })
+                    })
+                );
+            }
+
+            await Promise.all(promises);
+
+            // Optimistic Update
+            setUsers(prev => prev.map(u =>
+                u.id === selectedUser.id ? {
+                    ...u,
+                    role: { name: targetDbRole },
+                    isBanned: editIsBanned,
+                    seriousnessScore: isNaN(numScore) ? u.seriousnessScore : numScore
+                } : u
+            ));
+
+            setModalVisible(false);
+        } catch (e) {
+            console.error("Failed to update user", e);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const filtered = users.filter(u => {
+        const fullName = [u.firstName, u.lastName].filter(Boolean).join(' ').toLowerCase();
+        const email = (u.email || '').toLowerCase();
+        const query = search.toLowerCase();
+        return fullName.includes(query) || email.includes(query);
     });
-    
-    const handleChangeRole = (userId: string, currentRole: string) => {
-        const roles = ['tenant', 'landlord', 'admin'];
-        const currentIndex = roles.indexOf(currentRole);
-        const nextRole = roles[(currentIndex + 1) % roles.length];
-        
-        Alert.alert(
-            'Change Role',
-            `Change role from ${currentRole} to ${nextRole}?`,
-            [
-                { text: 'Cancel', style: 'cancel' },
-                { 
-                    text: 'Change', 
-                    onPress: async () => {
-                        // Call API to update role
-                        const result = await updateUserRole(userId, nextRole.toUpperCase());
-                        if (result) {
-                            setUsers(prev => 
-                                prev.map(u => u.id === userId ? { ...u, role: nextRole } : u)
-                            );
-                        } else {
-                            // Fallback for mock mode
-                            setUsers(prev => 
-                                prev.map(u => u.id === userId ? { ...u, role: nextRole } : u)
-                            );
-                        }
-                    }
-                }
-            ]
-        );
-    };
-    
-    const handleToggleStatus = (userId: string, currentStatus: string) => {
-        const newStatus = currentStatus === 'active' ? 'suspended' : 'active';
-        Alert.alert(
-            newStatus === 'suspended' ? 'Suspend User' : 'Activate User',
-            `Are you sure you want to ${newStatus === 'suspended' ? 'suspend' : 'activate'} this user?`,
-            [
-                { text: 'Cancel', style: 'cancel' },
-                { 
-                    text: 'Confirm', 
-                    style: newStatus === 'suspended' ? 'destructive' : 'default',
-                    onPress: () => {
-                        setUsers(prev => 
-                            prev.map(u => u.id === userId ? { ...u, status: newStatus } : u)
-                        );
-                    }
-                }
-            ]
-        );
-    };
-    
-    const getRoleColor = (role: string) => {
-        switch (role) {
-            case 'admin': return '#EF4444';
-            case 'landlord': return '#F59E0B';
-            case 'tenant': return Blue[600];
-            default: return Neutral[500];
-        }
-    };
-    
-    const formatDate = (date: Date) => {
-        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    };
+
+    const renderItem = ({ item }: { item: any }) => (
+        <Card elevation={2} style={[styles.card, item.isBanned && styles.bannedCard]}>
+            <View style={styles.row}>
+                <Avatar uri={item.picture} name={item.firstName || 'User'} size={48} />
+                <View style={styles.info}>
+                    <View style={styles.nameRow}>
+                        <Text style={styles.name}>{item.firstName} {item.lastName}</Text>
+                        {item.isBanned && <View style={styles.bannedTag}><Text style={styles.bannedText}>BANNED</Text></View>}
+                    </View>
+                    <Text style={styles.email}>{item.email}</Text>
+                    <View style={styles.metaRow}>
+                        <View style={styles.roleTag}>
+                            {/* Display TENANT for USER/NORMAL */}
+                            <Text style={styles.roleText}>{getUiRole(item.role?.name)}</Text>
+                        </View>
+                        <Text style={styles.scoreText}>Score: {item.seriousnessScore ?? 0}</Text>
+                    </View>
+                </View>
+                <TouchableOpacity onPress={() => openEditModal(item)} style={styles.editBtn}>
+                    <Ionicons name="settings-outline" size={22} color={Blue[600]} />
+                </TouchableOpacity>
+            </View>
+        </Card>
+    );
 
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
-            {/* Header */}
             <View style={styles.header}>
-                <Text style={styles.headerTitle}>User Management</Text>
-                <Text style={styles.headerSubtitle}>{users.length} total users</Text>
+                <Text style={styles.title}>User Management</Text>
+                <View style={styles.searchBox}>
+                    <Ionicons name="search" size={20} color={Neutral[400]} />
+                    <TextInput style={styles.input} placeholder="Search users..." value={search} onChangeText={setSearch} />
+                </View>
             </View>
-            
-            {/* Search */}
-            <View style={styles.searchContainer}>
-                <Ionicons name="search" size={20} color={Neutral[400]} />
-                <TextInput
-                    style={styles.searchInput}
-                    placeholder="Search users..."
-                    placeholderTextColor={Neutral[400]}
-                    value={searchQuery}
-                    onChangeText={setSearchQuery}
-                />
-                {searchQuery.length > 0 && (
-                    <TouchableOpacity onPress={() => setSearchQuery('')}>
-                        <Ionicons name="close-circle" size={20} color={Neutral[400]} />
-                    </TouchableOpacity>
-                )}
-            </View>
-            
-            {/* Filters */}
-            <View style={styles.filterContainer}>
-                <ScrollView 
-                    horizontal 
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.filterScroll}
-                >
-                    {ROLE_OPTIONS.map(option => (
-                        <TouchableOpacity
-                            key={option.id}
-                            style={[
-                                styles.filterChip,
-                                activeFilter === option.id && styles.filterChipActive
-                            ]}
-                            onPress={() => setActiveFilter(option.id)}
-                        >
-                            <Text style={[
-                                styles.filterChipText,
-                                activeFilter === option.id && styles.filterChipTextActive
-                            ]}>
-                                {option.label}
-                            </Text>
-                        </TouchableOpacity>
-                    ))}
-                </ScrollView>
-            </View>
-            
-            {filteredUsers.length === 0 ? (
-                <EmptyState 
-                    icon="people-outline"
-                    title="No users found"
-                    description="Try adjusting your search or filters."
-                />
-            ) : (
+
+            {loading ? <ActivityIndicator style={{marginTop:20}}/> :
                 <FlatList
-                    data={filteredUsers}
-                    keyExtractor={item => item.id}
-                    renderItem={({ item }) => (
-                        <Card elevation={2} style={styles.userCard}>
-                            <View style={styles.userHeader}>
-                                <View style={styles.userInfo}>
-                                    <Avatar 
-                                        uri={item.avatar} 
-                                        name={item.name} 
-                                        size={48} 
-                                    />
-                                    <View style={styles.userDetails}>
-                                        <View style={styles.nameRow}>
-                                            <Text style={styles.userName}>{item.name}</Text>
-                                            {item.status === 'suspended' && (
-                                                <View style={styles.suspendedBadge}>
-                                                    <Text style={styles.suspendedText}>Suspended</Text>
-                                                </View>
-                                            )}
-                                        </View>
-                                        <Text style={styles.userEmail}>{item.email}</Text>
-                                        <Text style={styles.joinedDate}>Joined {formatDate(item.joinedAt)}</Text>
-                                    </View>
-                                </View>
-                            </View>
-                            
-                            <View style={styles.userActions}>
-                                <TouchableOpacity 
-                                    style={[
-                                        styles.roleBadge,
-                                        { backgroundColor: getRoleColor(item.role) + '20' }
-                                    ]}
-                                    onPress={() => handleChangeRole(item.id, item.role)}
-                                >
-                                    <Text style={[
-                                        styles.roleText,
-                                        { color: getRoleColor(item.role) }
-                                    ]}>
-                                        {item.role.charAt(0).toUpperCase() + item.role.slice(1)}
-                                    </Text>
-                                    <Ionicons 
-                                        name="chevron-down" 
-                                        size={14} 
-                                        color={getRoleColor(item.role)} 
-                                    />
-                                </TouchableOpacity>
-                                
-                                <TouchableOpacity 
-                                    style={[
-                                        styles.statusButton,
-                                        item.status === 'active' ? styles.suspendButton : styles.activateButton
-                                    ]}
-                                    onPress={() => handleToggleStatus(item.id, item.status)}
-                                >
-                                    <Ionicons 
-                                        name={item.status === 'active' ? 'ban' : 'checkmark-circle'} 
-                                        size={16} 
-                                        color={item.status === 'active' ? '#EF4444' : '#10B981'} 
-                                    />
-                                    <Text style={[
-                                        styles.statusButtonText,
-                                        { color: item.status === 'active' ? '#EF4444' : '#10B981' }
-                                    ]}>
-                                        {item.status === 'active' ? 'Suspend' : 'Activate'}
-                                    </Text>
-                                </TouchableOpacity>
-                            </View>
-                        </Card>
-                    )}
-                    contentContainerStyle={styles.listContent}
-                    showsVerticalScrollIndicator={false}
+                    data={filtered}
+                    keyExtractor={i => i.id}
+                    renderItem={renderItem}
+                    contentContainerStyle={{padding: 16}}
                 />
-            )}
+            }
+
+            {/* --- EDIT MODAL --- */}
+            <Modal
+                transparent={true}
+                visible={modalVisible}
+                animationType="slide"
+                onRequestClose={() => setModalVisible(false)}
+            >
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === "ios" ? "padding" : "height"}
+                    style={styles.modalOverlay}
+                >
+                    <Pressable style={styles.modalContent} onPress={e => e.stopPropagation()}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Edit User</Text>
+                            <TouchableOpacity onPress={() => setModalVisible(false)}>
+                                <Ionicons name="close" size={24} color={Neutral[500]} />
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* 1. ROLE SELECTOR */}
+                        <Text style={styles.label}>Role</Text>
+                        <View style={styles.roleSelector}>
+                            {['TENANT', 'LANDLORD', 'ADMIN'].map((r) => (
+                                <TouchableOpacity
+                                    key={r}
+                                    style={[styles.roleOption, editRole === r && styles.roleOptionActive]}
+                                    onPress={() => setEditRole(r)}
+                                >
+                                    <Text style={[styles.roleOptionText, editRole === r && styles.roleOptionTextActive]}>{r}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+
+                        {/* 2. SCORE INPUT */}
+                        <Text style={styles.label}>Seriousness Score</Text>
+                        <TextInput
+                            style={styles.scoreInput}
+                            keyboardType="numeric"
+                            value={editScore}
+                            onChangeText={text => {
+                                if (text === '' || text === '-' || /^-?\d*$/.test(text)) {
+                                    setEditScore(text);
+                                }
+                            }}
+                        />
+
+                        {/* 3. BAN TOGGLE */}
+                        <View style={styles.banRow}>
+                            <View>
+                                <Text style={styles.label}>Banned Status</Text>
+                                <Text style={styles.helperText}>{editIsBanned ? 'User is currently banned' : 'User has access'}</Text>
+                            </View>
+                            <Switch
+                                trackColor={{ false: Neutral[200], true: '#EF4444' }}
+                                thumbColor={'#FFF'}
+                                onValueChange={setEditIsBanned}
+                                value={editIsBanned}
+                            />
+                        </View>
+
+                        <TouchableOpacity
+                            style={styles.saveBtn}
+                            onPress={handleSaveChanges}
+                            disabled={saving}
+                        >
+                            {saving ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveBtnText}>Save Changes</Text>}
+                        </TouchableOpacity>
+
+                    </Pressable>
+                </KeyboardAvoidingView>
+            </Modal>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: Neutral[50],
-    },
-    header: {
-        paddingHorizontal: Spacing.base,
-        paddingVertical: Spacing.lg,
-        backgroundColor: '#FFFFFF',
-    },
-    headerTitle: {
-        fontSize: Typography.size.xl,
-        fontWeight: Typography.weight.bold,
-        color: Neutral[900],
-    },
-    headerSubtitle: {
-        fontSize: Typography.size.sm,
-        color: Neutral[500],
-        marginTop: 4,
-    },
-    searchContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#FFFFFF',
-        marginHorizontal: Spacing.base,
-        paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.sm,
-        borderRadius: BorderRadius.lg,
-        borderWidth: 1,
-        borderColor: Neutral[200],
-        marginBottom: Spacing.sm,
-    },
-    searchInput: {
-        flex: 1,
-        marginLeft: Spacing.sm,
-        fontSize: Typography.size.base,
-        color: Neutral[900],
-    },
-    filterContainer: {
-        backgroundColor: '#FFFFFF',
-        borderBottomWidth: 1,
-        borderBottomColor: Neutral[100],
-    },
-    filterScroll: {
-        paddingHorizontal: Spacing.base,
-        paddingVertical: Spacing.sm,
-    },
-    filterChip: {
-        paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.sm,
-        borderRadius: BorderRadius.full,
-        backgroundColor: Neutral[100],
-        marginRight: Spacing.sm,
-    },
-    filterChipActive: {
-        backgroundColor: Blue[600],
-    },
-    filterChipText: {
-        fontSize: Typography.size.sm,
-        color: Neutral[600],
-        fontWeight: Typography.weight.medium,
-    },
-    filterChipTextActive: {
-        color: '#FFFFFF',
-    },
-    listContent: {
-        padding: Spacing.base,
-        paddingBottom: 100,
-    },
-    userCard: {
-        padding: Spacing.md,
-        marginBottom: Spacing.sm,
-    },
-    userHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        marginBottom: Spacing.md,
-    },
-    userInfo: {
-        flexDirection: 'row',
-        flex: 1,
-    },
-    userDetails: {
-        flex: 1,
-        marginLeft: Spacing.sm,
-    },
-    nameRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: Spacing.sm,
-    },
-    userName: {
-        fontSize: Typography.size.base,
-        fontWeight: Typography.weight.semibold,
-        color: Neutral[900],
-    },
-    suspendedBadge: {
-        backgroundColor: '#FEE2E2',
-        paddingHorizontal: Spacing.xs,
-        paddingVertical: 2,
-        borderRadius: BorderRadius.sm,
-    },
-    suspendedText: {
-        fontSize: Typography.size.xs,
-        color: '#EF4444',
-        fontWeight: Typography.weight.medium,
-    },
-    userEmail: {
-        fontSize: Typography.size.sm,
-        color: Neutral[500],
-        marginTop: 2,
-    },
-    joinedDate: {
-        fontSize: Typography.size.xs,
-        color: Neutral[400],
-        marginTop: 2,
-    },
-    userActions: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderTopWidth: 1,
-        borderTopColor: Neutral[100],
-        paddingTop: Spacing.md,
-    },
-    roleBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.sm,
-        borderRadius: BorderRadius.lg,
-        gap: 4,
-    },
-    roleText: {
-        fontSize: Typography.size.sm,
-        fontWeight: Typography.weight.medium,
-    },
-    statusButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.sm,
-        borderRadius: BorderRadius.lg,
-    },
-    suspendButton: {
-        backgroundColor: '#FEE2E2',
-    },
-    activateButton: {
-        backgroundColor: '#DCFCE7',
-    },
-    statusButtonText: {
-        fontSize: Typography.size.sm,
-        fontWeight: Typography.weight.medium,
-    },
+    container: { flex: 1, backgroundColor: Neutral[50] },
+    header: { padding: 16, backgroundColor: '#fff' },
+    title: { fontSize: 24, fontWeight: 'bold', marginBottom: 12 },
+    searchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: Neutral[100], borderRadius: 8, paddingHorizontal: 12, height: 40 },
+    input: { flex: 1, marginLeft: 8 },
+
+    card: { padding: 12, marginBottom: 8 },
+    bannedCard: { backgroundColor: '#FEF2F2', borderColor: '#FECACA', borderWidth: 1 },
+    row: { flexDirection: 'row', alignItems: 'center' },
+    info: { flex: 1, marginLeft: 12 },
+    nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    name: { fontSize: 16, fontWeight: '600' },
+    bannedTag: { backgroundColor: '#EF4444', paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4 },
+    bannedText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
+    email: { fontSize: 12, color: Neutral[500] },
+    metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 10 },
+    roleTag: { backgroundColor: Blue[50], paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+    roleText: { fontSize: 10, color: Blue[700], fontWeight: '700' },
+    scoreText: { fontSize: 12, color: Neutral[600] },
+    editBtn: { padding: 8 },
+
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    modalContent: { backgroundColor: '#FFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24 },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+    modalTitle: { fontSize: 20, fontWeight: 'bold' },
+    label: { fontSize: 14, fontWeight: '600', marginBottom: 8, color: Neutral[700] },
+    helperText: { fontSize: 12, color: Neutral[500] },
+    roleSelector: { flexDirection: 'row', backgroundColor: Neutral[100], borderRadius: 8, padding: 4, marginBottom: 20 },
+    roleOption: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 6 },
+    roleOptionActive: { backgroundColor: '#FFF', ...Shadows.sm },
+    roleOptionText: { fontSize: 12, fontWeight: '600', color: Neutral[500] },
+    roleOptionTextActive: { color: Blue[600] },
+    scoreInput: { backgroundColor: Neutral[50], borderWidth: 1, borderColor: Neutral[200], borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 20 },
+    banRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30, padding: 12, backgroundColor: Neutral[50], borderRadius: 8, borderWidth: 1, borderColor: Neutral[200] },
+    saveBtn: { backgroundColor: Blue[600], paddingVertical: 16, borderRadius: 12, alignItems: 'center' },
+    saveBtnText: { color: '#FFF', fontSize: 16, fontWeight: 'bold' }
 });

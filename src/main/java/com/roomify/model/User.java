@@ -36,8 +36,6 @@ public class User {
     private List<String> photos;
 
     // --- LIFESTYLE & PREFERENCES ---
-    // Nullable Boolean allows for "Not Specified" which won't trigger negative scores
-
     @Column(name = "is_smoker")
     private Boolean isSmoker;
 
@@ -50,7 +48,6 @@ public class User {
     @Column(name = "wants_extra_bathroom")
     private Boolean wantsExtraBathroom;
 
-    // The user selects ONE type that describes them (e.g., STUDENT)
     @Enumerated(EnumType.STRING)
     @Column(name = "tenant_type")
     private PreferredTenantType tenantType;
@@ -80,11 +77,22 @@ public class User {
     @Builder.Default
     @Column(name = "pet_friendly")
     private Boolean petFriendly = false;
-    // --- End Video Interview Fields ---
+
+    // --- REPORTING & MODERATION ---
+
+    @Builder.Default
+    @Column(name = "seriousness_score", columnDefinition = "integer default 100")
+    private Integer seriousnessScore = 100; // Starts at 100, decreases with penalties
+
+    @Builder.Default
+    @Column(name = "is_banned", nullable = false, columnDefinition = "boolean default false")
+    private Boolean isBanned = false;
+
+    // --- Helpers ---
 
     public boolean isProfileComplete() {
         return firstName != null && !firstName.isBlank() &&
-                !firstName.equals("New User") && // Force them to change the default name
+                !firstName.equals("New User") &&
                 phoneNumber != null && !phoneNumber.isBlank() &&
                 email != null && !email.isBlank();
     }
@@ -95,9 +103,6 @@ public class User {
                 && this.firstName != null && !this.firstName.isBlank();
     }
 
-    /**
-     * Checks if the user has completed the video interview verification process.
-     */
     public boolean isVideoVerified() {
         return Boolean.TRUE.equals(isVerified) && videoUrl != null && !videoUrl.isBlank();
     }

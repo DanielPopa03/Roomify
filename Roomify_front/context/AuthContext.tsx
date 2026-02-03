@@ -20,6 +20,9 @@ export interface BackendUser {
     jobTitle?: string;
     smokerFriendly?: boolean;
     petFriendly?: boolean;
+    // Reporting & Moderation
+    isBanned?: boolean; // <--- ADDED
+    seriousnessScore?: number;
 }
 
 export interface AuthUser {
@@ -32,9 +35,10 @@ export interface AuthUser {
 
 export interface AuthContextType {
     user: AuthUser | null;
-    dbUser: BackendUser | null; // <--- ADDED
+    dbUser: BackendUser | null;
     role: string | null;
     isProfileComplete: boolean;
+    isBanned: boolean; // <--- ADDED
     isLoading: boolean;
     isAuthenticated: boolean;
     error: Error | null;
@@ -42,7 +46,7 @@ export interface AuthContextType {
     logout: () => Promise<void>;
     getAccessToken: () => Promise<string | null | undefined>;
     setIsProfileComplete: (complete: boolean) => void;
-    refreshUser: () => Promise<void>; // <--- ADDED
+    refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -58,7 +62,7 @@ function AuthContextContent({ children }: { children: ReactNode }) {
     } = useAuth0();
 
     const [role, setRole] = useState<string | null>(null);
-    const [dbUser, setDbUser] = useState<BackendUser | null>(null); // <--- ADDED STATE
+    const [dbUser, setDbUser] = useState<BackendUser | null>(null);
     const [isProfileComplete, setIsProfileComplete] = useState<boolean | null>(null);
 
     const [isFetchingRole, setIsFetchingRole] = useState(false);
@@ -73,7 +77,6 @@ function AuthContextContent({ children }: { children: ReactNode }) {
         }
     };
 
-    // Renamed from fetchRole to refreshUser to match your usage
     const refreshUser = async () => {
         try {
             const accessToken = await getAccessToken();
@@ -91,7 +94,7 @@ function AuthContextContent({ children }: { children: ReactNode }) {
             if (response.ok) {
                 const userData = await response.json();
 
-                // 1. Save full user data
+                // 1. Save full user data (including isBanned)
                 setDbUser(userData);
 
                 // 2. Update derived state
@@ -131,7 +134,7 @@ function AuthContextContent({ children }: { children: ReactNode }) {
             await clearSession();
             await AsyncStorage.clear();
             setRole(null);
-            setDbUser(null); // Clear DB user
+            setDbUser(null);
             setIsProfileComplete(null);
         } catch (e) {
             console.log('Logout failed', e);
@@ -159,9 +162,10 @@ function AuthContextContent({ children }: { children: ReactNode }) {
 
     const contextValue: AuthContextType = {
         user: user ? { ...user } : null,
-        dbUser, // <--- EXPOSED
+        dbUser,
         role,
         isProfileComplete: isProfileComplete === true,
+        isBanned: dbUser?.isBanned === true, // <--- EXPOSED
         setIsProfileComplete: (val) => setIsProfileComplete(val),
         isLoading: isContextLoading,
         isAuthenticated: !!user,
@@ -169,7 +173,7 @@ function AuthContextContent({ children }: { children: ReactNode }) {
         login,
         logout,
         getAccessToken,
-        refreshUser, // <--- EXPOSED
+        refreshUser,
     };
 
     return (

@@ -219,6 +219,37 @@ public class ChatService {
     /**
      * Get list of conversations for the Landlord
      */
+    private static final java.time.Duration MATCH_EXPIRY_WINDOW = java.time.Duration.ofHours(24);
+
+    private List<Match> pruneExpiredMatches(List<Match> matches) {
+        List<Match> valid = new ArrayList<>();
+        LocalDateTime now = LocalDateTime.now();
+
+        for (Match m : matches) {
+            // Only check confirmed matches
+            if (m.getStatus() != MatchStatus.MATCHED) {
+                valid.add(m); // Keep non-matched (safety)
+                continue;
+            }
+
+            boolean tenantMessaged = Boolean.TRUE.equals(m.getTenantMessaged());
+            LocalDateTime created = m.getCreatedAt();
+
+            if (!tenantMessaged && created != null && created.plus(MATCH_EXPIRY_WINDOW).isBefore(now)) {
+                // Expired: punish tenant and delete match
+                User tenant = m.getTenant();
+                tenant.setSeriousnessScore((tenant.getSeriousnessScore() == null ? 0 : tenant.getSeriousnessScore()) - 1);
+                userRepository.save(tenant);
+                // Remove any chat messages first to avoid FK violations
+                chatMessageRepository.deleteByMatchId(m.getId());
+                matchRepository.delete(m);
+            } else {
+                valid.add(m);
+            }
+        }
+        return valid;
+    }
+
     public List<Map<String, Object>> getLandlordConversations(String landlordId) {
         // Include all active rental workflow states, not just MATCHED
         List<MatchStatus> activeStatuses = List.of(
@@ -229,6 +260,9 @@ public class ChatService {
                 MatchStatus.RENTED);
         List<Match> matches = matchRepository.findByLandlord_IdAndStatusInOrderByUpdatedAtDesc(landlordId,
                 activeStatuses);
+
+        // Prune expired matches first
+        matches = pruneExpiredMatches(matches);
 
         return matches.stream().map(match -> {
             Map<String, Object> dto = new HashMap<>();
@@ -253,6 +287,18 @@ public class ChatService {
 
             long unread = chatMessageRepository.countByMatchIdAndSenderIdNotAndIsReadFalse(match.getId(), landlordId);
             dto.put("unreadCount", unread);
+
+            // Countdown & flags
+            dto.put("tenantMessaged", match.getTenantMessaged());
+            if (!Boolean.TRUE.equals(match.getTenantMessaged()) && match.getCreatedAt() != null) {
+                LocalDateTime expires = match.getCreatedAt().plus(MATCH_EXPIRY_WINDOW);
+                long secondsLeft = java.time.Duration.between(LocalDateTime.now(), expires).getSeconds();
+                dto.put("timeLeftSeconds", secondsLeft > 0 ? secondsLeft : 0);
+                dto.put("expiresAt", expires.toString());
+            } else {
+                dto.put("timeLeftSeconds", 0);
+                dto.put("expiresAt", null);
+            }
 
             return dto;
         }).collect(Collectors.toList());
@@ -287,7 +333,40 @@ public class ChatService {
         ChatMessage saved = chatMessageRepository.save(message);
         updateMatchTimestamp(match);
 
-        return toMessageDto(saved, senderId);
+        // If sender is the tenant and they message within the 24h window
+        try {
+            if (match.getTenant().getId().equals(senderId)) {
+                boolean already = Boolean.TRUE.equals(match.getTenantMessaged());
+                if (!already) {
+                    LocalDateTime now = LocalDateTime.now();
+                    LocalDateTime created = match.getCreatedAt();
+                    if (created != null && (created.plus(MATCH_EXPIRY_WINDOW).isAfter(now) || created.plus(MATCH_EXPIRY_WINDOW).isEqual(now))) {
+                        match.setTenantMessaged(true);
+                        match.setTenantMessagedAt(now);
+
+                        User tenant = match.getTenant();
+                        tenant.setSeriousnessScore((tenant.getSeriousnessScore() == null ? 0 : tenant.getSeriousnessScore()) + 1);
+                        userRepository.save(tenant);
+                        matchRepository.save(match);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Warning: failed to update tenant messaged flag - " + e.getMessage());
+        }
+
+        // Update Match timestamp so it moves to top of list
+        match.setUpdatedAt(LocalDateTime.now());
+        matchRepository.save(match);
+
+        // Return DTO consistent with getChatMessages
+        Map<String, Object> dto = new HashMap<>();
+        dto.put("id", saved.getId().toString());
+        dto.put("text", saved.getContent());
+        dto.put("sender", "me");
+        dto.put("timestamp", saved.getCreatedAt().format(DateTimeFormatter.ofPattern("h:mm a")));
+
+        return dto;
     }
 
     /**
@@ -322,11 +401,15 @@ public class ChatService {
                 MatchStatus.RENTED);
         List<Match> matches = matchRepository.findByTenant_IdAndStatusInOrderByUpdatedAtDesc(tenantId, activeStatuses);
 
+        // Prune expired matches first
+        matches = pruneExpiredMatches(matches);
+
         return matches.stream().map(match -> {
             Map<String, Object> dto = new HashMap<>();
             dto.put("id", match.getId().toString());
 
             User landlord = match.getLandlord();
+            dto.put("landlordId", landlord.getId());
             dto.put("landlordName", landlord.getFirstName());
             dto.put("landlordAvatar", null);
 
@@ -347,6 +430,18 @@ public class ChatService {
 
             long unread = chatMessageRepository.countByMatchIdAndSenderIdNotAndIsReadFalse(match.getId(), tenantId);
             dto.put("unreadCount", unread);
+
+            // Countdown & flags
+            dto.put("tenantMessaged", match.getTenantMessaged());
+            if (!Boolean.TRUE.equals(match.getTenantMessaged()) && match.getCreatedAt() != null) {
+                LocalDateTime expires = match.getCreatedAt().plus(MATCH_EXPIRY_WINDOW);
+                long secondsLeft = java.time.Duration.between(LocalDateTime.now(), expires).getSeconds();
+                dto.put("timeLeftSeconds", secondsLeft > 0 ? secondsLeft : 0);
+                dto.put("expiresAt", expires.toString());
+            } else {
+                dto.put("timeLeftSeconds", 0);
+                dto.put("expiresAt", null);
+            }
 
             return dto;
         }).collect(Collectors.toList());
@@ -437,6 +532,38 @@ public class ChatService {
         } else {
             boolean isMe = msg.getSender().getId().equals(currentUserId);
             dto.put("sender", isMe ? "me" : "other");
+            dto.put("senderId", msg.getSender().getId());
+            dto.put("senderName", msg.getSender().getFirstName());
+        }
+
+        return dto;
+    }
+
+    /**
+     * Returns match metadata: tenantMessaged, timeLeftSeconds, expiresAt, participant ids
+     */
+    public Map<String, Object> getMatchInfo(Long matchId, String currentUserId) {
+        Match match = matchRepository.findById(matchId).orElseThrow(() -> new RuntimeException("Match not found"));
+
+        // Authorization: must be tenant or landlord
+        if (!match.getTenant().getId().equals(currentUserId) && !match.getLandlord().getId().equals(currentUserId)) {
+            throw new RuntimeException("Unauthorized to access match info");
+        }
+
+        Map<String, Object> dto = new HashMap<>();
+        dto.put("id", match.getId().toString());
+        dto.put("tenantId", match.getTenant().getId());
+        dto.put("landlordId", match.getLandlord().getId());
+        dto.put("tenantMessaged", match.getTenantMessaged());
+
+        if (!Boolean.TRUE.equals(match.getTenantMessaged()) && match.getCreatedAt() != null) {
+            LocalDateTime expires = match.getCreatedAt().plus(MATCH_EXPIRY_WINDOW);
+            long secondsLeft = java.time.Duration.between(LocalDateTime.now(), expires).getSeconds();
+            dto.put("timeLeftSeconds", secondsLeft > 0 ? secondsLeft : 0);
+            dto.put("expiresAt", expires.toString());
+        } else {
+            dto.put("timeLeftSeconds", 0);
+            dto.put("expiresAt", null);
         }
 
         return dto;

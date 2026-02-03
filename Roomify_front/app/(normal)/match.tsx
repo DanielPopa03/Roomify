@@ -1,4 +1,14 @@
 import React, { useState, useCallback, useEffect } from 'react';
+
+const formatSeconds = (sec: number) => {
+    if (!sec || sec <= 0) return '0s';
+    const hours = Math.floor(sec / 3600);
+    const minutes = Math.floor((sec % 3600) / 60);
+    const seconds = sec % 60;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    if (minutes > 0) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
+};
 import {
     View, Text, FlatList, StyleSheet, Image, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Platform
 } from 'react-native';
@@ -119,17 +129,17 @@ export default function MatchScreen() {
         }, [fetchConversations])
     );
 
-    const handleChatPress = (chatId: string, landlordName: string, propertyTitle: string) => {
+    const handleChatPress = (chatId: string, landlordName: string, propertyTitle: string, landlordId?: string) => {
         router.push({
             pathname: '/(normal)/chat-room',
-            params: { chatId, title: landlordName, subTitle: propertyTitle }
+            params: { chatId, title: landlordName, subTitle: propertyTitle, otherUserId: landlordId }
         });
     };
 
     const renderItem = ({ item }: { item: any }) => (
         <TouchableOpacity
             style={[styles.conversationCard, item.unreadCount > 0 && styles.unreadCard]}
-            onPress={() => handleChatPress(item.id, item.landlordName, item.propertyTitle)}
+            onPress={() => handleChatPress(item.id, item.landlordName, item.propertyTitle, item.landlordId)}
             activeOpacity={0.7}
         >
             <View style={styles.propertyImageContainer}>
@@ -157,6 +167,12 @@ export default function MatchScreen() {
                     )}
                 </View>
 
+                {item.timeLeftSeconds > 0 && !item.tenantMessaged ? (
+                    <Text style={styles.countdownSmall}>Time left to message: {formatSeconds(item.timeLeftSeconds)}</Text>
+                ) : item.tenantMessaged ? (
+                    <Text style={styles.countdownSmall}>You have messaged ✔️</Text>
+                ) : null}
+
                 <Text
                     style={[styles.lastMessage, item.unreadCount > 0 && styles.unreadMessage]}
                     numberOfLines={2}
@@ -175,6 +191,10 @@ export default function MatchScreen() {
                 user={user}
                 onProfilePress={() => router.push('/(normal)/profile')}
             />
+
+            <View style={{ paddingHorizontal: Spacing.md }}>
+                <Text style={{ fontSize: 12, color: Neutral[500], marginTop: 6 }}>Time left shows how long you have to send the first message after a match.</Text>
+            </View>
 
             {isLoading || verifyingPayment ? (
                 <View style={styles.centered}>
@@ -230,6 +250,7 @@ const styles = StyleSheet.create({
     propertyTitle: { fontSize: Typography.size.sm, fontWeight: Typography.weight.bold, color: Neutral[900], flex: 1 },
     timestamp: { fontSize: Typography.size.xs, color: Neutral[400] },
     landlordRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+    countdownSmall: { fontSize: 12, color: Neutral[500], marginTop: 4 },
     landlordName: { fontSize: Typography.size.xs, color: Neutral[500], marginRight: 8 },
     priceBadge: { backgroundColor: Blue[50], paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
     priceText: { fontSize: 10, fontWeight: 'bold', color: Blue[600] },

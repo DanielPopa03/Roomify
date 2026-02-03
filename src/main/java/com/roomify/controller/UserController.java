@@ -42,10 +42,6 @@ public class UserController {
         this.geminiService = geminiService;
     }
 
-    // ================================
-    // EXISTING ENDPOINTS
-    // ================================
-
     @PostMapping("/authorize")
     public ResponseEntity<User> authorize() {
         return ResponseEntity.ok(userService.getOrSyncUser());
@@ -87,10 +83,7 @@ public class UserController {
     }
 
     @DeleteMapping("/{id:.+}")
-    public ResponseEntity<Void> deleteUser(
-            @PathVariable String id,
-            @AuthenticationPrincipal Jwt jwt
-    ) {
+    public ResponseEntity<Void> deleteUser(@PathVariable String id, @AuthenticationPrincipal Jwt jwt) {
         if (!jwt.getSubject().equals(id)) {
             return ResponseEntity.status(403).build();
         }
@@ -110,8 +103,7 @@ public class UserController {
     @PostMapping("/preferences")
     public ResponseEntity<Preferences> savePreferences(
             @RequestBody Preferences preferences,
-            @AuthenticationPrincipal Jwt jwt
-    ) {
+            @AuthenticationPrincipal Jwt jwt) {
         String userId = jwt.getSubject();
         Preferences savedPreferences = preferencesService.savePreferences(userId, preferences);
         return ResponseEntity.ok(savedPreferences);
@@ -121,9 +113,7 @@ public class UserController {
     public ResponseEntity<Preferences> getPreferences(@AuthenticationPrincipal Jwt jwt) {
         String userId = jwt.getSubject();
         Optional<Preferences> preferences = preferencesService.getPreferences(userId);
-        return preferences
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+        return preferences.map(ResponseEntity::ok).orElse(ResponseEntity.notFound().build());
     }
 
     @DeleteMapping("/preferences")
@@ -132,147 +122,86 @@ public class UserController {
         preferencesService.deletePreferences(userId);
         return ResponseEntity.noContent().build();
     }
+
     @PostMapping(value = "/interview/analyze", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> analyzeInterview(
             @RequestParam("file") MultipartFile file,
             @AuthenticationPrincipal Jwt jwt) {
         try {
-            if (file.isEmpty()) {
-                return ResponseEntity.badRequest().body(Map.of("error", "Video file is required"));
-            }
-
-            // Validate file type
+            if (file.isEmpty()) return ResponseEntity.badRequest().body(Map.of("error", "Video file is required"));
             String contentType = file.getContentType();
-            if (contentType == null || !contentType.startsWith("video/")) {
-                return ResponseEntity.badRequest().body(Map.of("error", "File must be a video"));
-            }
+            if (contentType == null || !contentType.startsWith("video/")) return ResponseEntity.badRequest().body(Map.of("error", "File must be a video"));
 
-            // 1. Save file locally
             String localVideoUrl = geminiService.saveVideoLocally(file);
             String videoFilename = localVideoUrl.substring(localVideoUrl.lastIndexOf("/") + 1);
-
-            // 2. Upload to Gemini and analyze
             UserProfileSuggestion suggestion = geminiService.uploadAndAnalyzeVideo(file);
-
-            // 3. Build response
-            InterviewAnalysisResponse response = InterviewAnalysisResponse.fromSuggestion(
-                    suggestion,
-                    localVideoUrl,
-                    videoFilename);
+            InterviewAnalysisResponse response = InterviewAnalysisResponse.fromSuggestion(suggestion, localVideoUrl, videoFilename);
 
             return ResponseEntity.ok(response);
-
         } catch (RuntimeException e) {
-            System.err.println("Interview analysis failed: " + e.getMessage());
-            return ResponseEntity.internalServerError()
-                    .body(Map.of("error", "Failed to analyze video: " + e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "Failed to analyze video: " + e.getMessage()));
         }
     }
 
-    /**
-     * Endpoint B: Confirm Profile
-     * Updates user with approved interview data and marks as verified.
-     */
     @PostMapping("/interview/confirm")
     public ResponseEntity<?> confirmInterview(
             @RequestBody InterviewConfirmationRequest request,
             @AuthenticationPrincipal Jwt jwt) {
         try {
             String userId = jwt.getSubject();
+            User user = userService.getUserById(userId).orElseThrow(() -> new RuntimeException("User not found"));
 
-            User user = userService.getUserById(userId)
-                    .orElseThrow(() -> new RuntimeException("User not found"));
+            if (request.getBio() != null) user.setBio(request.getBio());
+            if (request.getJobTitle() != null) user.setJobTitle(request.getJobTitle());
+            if (request.getSmokerFriendly() != null) user.setSmokerFriendly(request.getSmokerFriendly());
+            if (request.getPetFriendly() != null) user.setPetFriendly(request.getPetFriendly());
+            if (request.getVideoFilename() != null) user.setVideoUrl("/user/interview/video/" + request.getVideoFilename());
+            if (request.getIsVideoPublic() != null) user.setIsVideoPublic(request.getIsVideoPublic());
 
-            // Update user fields with confirmed data
-            if (request.getBio() != null) {
-                user.setBio(request.getBio());
-            }
-            if (request.getJobTitle() != null) {
-                user.setJobTitle(request.getJobTitle());
-            }
-            if (request.getSmokerFriendly() != null) {
-                user.setSmokerFriendly(request.getSmokerFriendly());
-            }
-            if (request.getPetFriendly() != null) {
-                user.setPetFriendly(request.getPetFriendly());
-            }
-            if (request.getVideoFilename() != null) {
-                user.setVideoUrl("/user/interview/video/" + request.getVideoFilename());
-            }
-            if (request.getIsVideoPublic() != null) {
-                user.setIsVideoPublic(request.getIsVideoPublic());
-            }
-
-            // Mark as verified
             user.setIsVerified(true);
-
-            // Save updated user
             User savedUser = userService.saveUser(user);
-
             return ResponseEntity.ok(savedUser);
-
         } catch (RuntimeException e) {
-            System.err.println("Interview confirmation failed: " + e.getMessage());
-            return ResponseEntity.internalServerError()
-                    .body(Map.of("error", "Failed to confirm profile: " + e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("error", "Failed to confirm profile: " + e.getMessage()));
         }
     }
 
-    /**
-     * Endpoint C: Serve Video
-     * Serves video files for playback in the frontend.
-     */
     @GetMapping("/interview/video/{filename:.+}")
     public ResponseEntity<Resource> serveVideo(@PathVariable String filename) {
         try {
             Path filePath = videoStorageLocation.resolve(filename).normalize();
             Resource resource = new UrlResource(filePath.toUri());
+            if (!resource.exists() || !resource.isReadable()) return ResponseEntity.notFound().build();
 
-            if (!resource.exists() || !resource.isReadable()) {
-                return ResponseEntity.notFound().build();
-            }
-
-            // Determine content type
             String contentType = "video/mp4";
-            if (filename.endsWith(".webm")) {
-                contentType = "video/webm";
-            } else if (filename.endsWith(".mov")) {
-                contentType = "video/quicktime";
-            }
+            if (filename.endsWith(".webm")) contentType = "video/webm";
+            else if (filename.endsWith(".mov")) contentType = "video/quicktime";
 
             return ResponseEntity.ok()
                     .contentType(MediaType.parseMediaType(contentType))
                     .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + filename + "\"")
                     .body(resource);
-
         } catch (MalformedURLException e) {
             return ResponseEntity.internalServerError().build();
         }
     }
 
-    // --- MISSING ENDPOINT: LANDLORD FEED ---
     @GetMapping("/feed")
     public ResponseEntity<List<User>> getTenantFeed (
             @RequestParam(required = false) Long propertyId,
-            @AuthenticationPrincipal Jwt jwt
-    ) {
+            @AuthenticationPrincipal Jwt jwt) {
         String landlordId = jwt.getSubject();
         List<User> feed = userService.getTenantFeed(landlordId, propertyId);
         return ResponseEntity.ok(feed);
     }
-    // ---------------------------------------
 
-    // --- IMAGE SERVING ---
     @GetMapping("/images/{filename:.+}")
     public ResponseEntity<Resource> serveFile(@PathVariable String filename) {
         try {
             Path file = rootLocation.resolve(filename);
             Resource resource = new UrlResource(file.toUri());
-
             if (resource.exists() || resource.isReadable()) {
-                return ResponseEntity.ok()
-                        .contentType(MediaType.IMAGE_JPEG)
-                        .body(resource);
+                return ResponseEntity.ok().contentType(MediaType.IMAGE_JPEG).body(resource);
             } else {
                 return ResponseEntity.notFound().build();
             }

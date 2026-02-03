@@ -7,9 +7,13 @@ import com.roomify.model.enums.MatchStatus;
 import com.roomify.repository.MatchRepository;
 import com.roomify.repository.PropertyRepository;
 import com.roomify.repository.UserRepository;
+import com.roomify.repository.ChatMessageRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -19,6 +23,7 @@ public class MatchService {
     private final MatchRepository matchRepository;
     private final PropertyRepository propertyRepository;
     private final UserRepository userRepository;
+    private final ChatMessageRepository chatMessageRepository;
 
     // SCORING WEIGHTS
     private static final double LIKE_SCORE = 10.0;
@@ -28,10 +33,11 @@ public class MatchService {
     // It will be pushed to the bottom of the feed rather than hidden immediately.
     private static final double PASS_SCORE = -20.0;
 
-    public MatchService(MatchRepository matchRepository, PropertyRepository propertyRepository, UserRepository userRepository) {
+    public MatchService(MatchRepository matchRepository, PropertyRepository propertyRepository, UserRepository userRepository, ChatMessageRepository chatMessageRepository) {
         this.matchRepository = matchRepository;
         this.propertyRepository = propertyRepository;
         this.userRepository = userRepository;
+        this.chatMessageRepository = chatMessageRepository;
     }
 
     // --- TENANT ACTIONS ---
@@ -137,6 +143,24 @@ public class MatchService {
     }
 
     public List<Match> getConfirmedMatches(String landlordId) {
-        return matchRepository.findByLandlord_IdAndStatus(landlordId, MatchStatus.MATCHED);
+        List<Match> matches = matchRepository.findByLandlord_IdAndStatus(landlordId, MatchStatus.MATCHED);
+        // Prune expired matches similarly to ChatService
+        List<Match> valid = new ArrayList<>();
+        LocalDateTime now = LocalDateTime.now();
+        for (Match m : matches) {
+            boolean tenantMessaged = Boolean.TRUE.equals(m.getTenantMessaged());
+            LocalDateTime created = m.getCreatedAt();
+            if (!tenantMessaged && created != null && created.plusHours(24).isBefore(now)) {
+                User tenant = m.getTenant();
+                tenant.setSeriousnessScore((tenant.getSeriousnessScore() == null ? 0 : tenant.getSeriousnessScore()) - 1);
+                userRepository.save(tenant);
+                // remove messages first
+                chatMessageRepository.deleteByMatchId(m.getId());
+                matchRepository.delete(m);
+            } else {
+                valid.add(m);
+            }
+        }
+        return valid;
     }
 }

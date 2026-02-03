@@ -7,16 +7,32 @@ export interface PropertyImage {
 export interface Property {
     id: number;
     title: string;
-    description: string;
     price: number;
-    address: string;
     surface: number;
+    address: string;
+    description: string;
     numberOfRooms: number;
-    images: PropertyImage[];
+    hasExtraBathroom: boolean;
+    layoutType: string;
+    preferredTenants: string[];
+    smokerFriendly: boolean;
+    petFriendly: boolean;
+    latitude: number;
+    longitude: number;
+    images: string[];
+
+    // --- UPDATED FIELDS ---
+    // Remove: owner: User;
+    // Add these instead to match PropertyFeedResponse.java:
     ownerId: string;
+
     // Social Proof Fields
     activeViewersCount?: number;
     isTrending?: boolean;
+
+    // Owner details for quick reference
+    ownerFirstName?: string;
+    ownerPicture?: string;
 }
 
 export interface User {

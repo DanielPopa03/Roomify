@@ -60,4 +60,12 @@ public class Match {
 
     @UpdateTimestamp
     private LocalDateTime updatedAt;
+
+    // Whether the tenant has sent a first message for this match within the 24h window
+    @Builder.Default
+    @Column(name = "tenant_messaged", columnDefinition = "boolean default false")
+    private Boolean tenantMessaged = false;
+
+    @Column(name = "tenant_messaged_at")
+    private LocalDateTime tenantMessagedAt;
 }

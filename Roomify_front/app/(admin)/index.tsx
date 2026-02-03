@@ -1,172 +1,144 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar, Card } from '@/components/ui';
-import { Blue, BorderRadius, Neutral, Shadows, Spacing, Typography } from '@/constants/theme';
+import { Blue, Neutral, Spacing, Typography, BorderRadius, Shadows } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 
-// Mock dashboard stats
-const STATS = {
-    totalUsers: 1247,
-    totalProperties: 523,
-    activeListings: 412,
-    pendingReports: 8,
-    newUsersToday: 23,
-    newPropertiesToday: 7,
-};
-
-// Mock recent activity
-const RECENT_ACTIVITY = [
-    { id: '1', type: 'user', message: 'New user registered: John Smith', time: '5m ago' },
-    { id: '2', type: 'property', message: 'New property listed: Modern Apartment', time: '12m ago' },
-    { id: '3', type: 'report', message: 'Report filed against user: Mike99', time: '1h ago' },
-    { id: '4', type: 'user', message: 'User role changed: Sarah → Landlord', time: '2h ago' },
-    { id: '5', type: 'property', message: 'Property removed: Old House', time: '3h ago' },
-];
-
 export default function AdminDashboardScreen() {
-    const router = useRouter();
     const insets = useSafeAreaInsets();
-    const { user } = useAuth();
-    
-    const getActivityIcon = (type: string) => {
-        switch (type) {
-            case 'user': return 'person';
-            case 'property': return 'home';
-            case 'report': return 'flag';
-            default: return 'information-circle';
+    const router = useRouter();
+    // 1. Get logout function from AuthContext
+    const { user, dbUser, getAccessToken, logout } = useAuth();
+
+    const [stats, setStats] = useState({
+        totalUsers: 0,
+        totalProperties: 0,
+        activeListings: 0,
+        pendingReports: 0
+    });
+    const [refreshing, setRefreshing] = useState(false);
+
+    const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
+
+    const fetchStats = async () => {
+        try {
+            const token = await getAccessToken();
+            const response = await fetch(`http://${MY_IP}:8080/api/admin/dashboard`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                setStats(data);
+            }
+        } catch (error) {
+            console.log("Failed to fetch admin stats");
         }
     };
-    
-    const getActivityColor = (type: string) => {
-        switch (type) {
-            case 'user': return Blue[600];
-            case 'property': return '#10B981';
-            case 'report': return '#EF4444';
-            default: return Neutral[500];
+
+    useEffect(() => {
+        fetchStats();
+    }, []);
+
+    const onRefresh = async () => {
+        setRefreshing(true);
+        await fetchStats();
+        setRefreshing(false);
+    };
+
+    const handleLogout = async () => {
+        try {
+            await logout();
+            // AuthContext state change will automatically redirect to Login via RootLayout
+        } catch (e) {
+            console.error("Logout failed", e);
         }
     };
+
+    // Determine display name: DB First Name -> Auth0 Name -> 'Admin'
+    const displayName = dbUser?.firstName || user?.name || 'Admin';
 
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
-            {/* Header */}
             <View style={styles.header}>
                 <View>
-                    <Text style={styles.greeting}>Welcome back,</Text>
-                    <Text style={styles.adminName}>{user?.name || 'Admin'}</Text>
+                    <Text style={styles.greeting}>Hello,</Text>
+                    <Text style={styles.adminName}>{displayName}</Text>
                 </View>
-                <Avatar uri={user?.picture} name={user?.name || 'Admin'} size={44} />
+                <Avatar uri={user?.picture} name={displayName} size={44} />
             </View>
-            
-            <ScrollView 
+
+            <ScrollView
                 style={styles.content}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.scrollContent}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
             >
-                {/* Stats Grid */}
                 <View style={styles.statsGrid}>
                     <Card elevation={2} style={styles.statCard}>
                         <View style={[styles.statIcon, { backgroundColor: Blue[50] }]}>
                             <Ionicons name="people" size={24} color={Blue[600]} />
                         </View>
-                        <Text style={styles.statNumber}>{STATS.totalUsers.toLocaleString()}</Text>
+                        <Text style={styles.statNumber}>{stats.totalUsers}</Text>
                         <Text style={styles.statLabel}>Total Users</Text>
-                        <Text style={styles.statChange}>+{STATS.newUsersToday} today</Text>
                     </Card>
-                    
+
                     <Card elevation={2} style={styles.statCard}>
                         <View style={[styles.statIcon, { backgroundColor: '#DCFCE7' }]}>
                             <Ionicons name="home" size={24} color="#10B981" />
                         </View>
-                        <Text style={styles.statNumber}>{STATS.totalProperties.toLocaleString()}</Text>
+                        <Text style={styles.statNumber}>{stats.totalProperties}</Text>
                         <Text style={styles.statLabel}>Properties</Text>
-                        <Text style={styles.statChange}>+{STATS.newPropertiesToday} today</Text>
                     </Card>
-                    
-                    <Card elevation={2} style={styles.statCard}>
-                        <View style={[styles.statIcon, { backgroundColor: '#FEF3C7' }]}>
-                            <Ionicons name="checkmark-circle" size={24} color="#F59E0B" />
-                        </View>
-                        <Text style={styles.statNumber}>{STATS.activeListings.toLocaleString()}</Text>
-                        <Text style={styles.statLabel}>Active Listings</Text>
-                    </Card>
-                    
+
                     <Card elevation={2} style={styles.statCard}>
                         <View style={[styles.statIcon, { backgroundColor: '#FEE2E2' }]}>
                             <Ionicons name="flag" size={24} color="#EF4444" />
                         </View>
-                        <Text style={styles.statNumber}>{STATS.pendingReports}</Text>
+                        <Text style={styles.statNumber}>{stats.pendingReports}</Text>
                         <Text style={styles.statLabel}>Pending Reports</Text>
-                        <TouchableOpacity onPress={() => router.push('/(admin)/reports')}>
-                            <Text style={styles.viewLink}>View all</Text>
-                        </TouchableOpacity>
                     </Card>
                 </View>
-                
+
                 {/* Quick Actions */}
-                <Text style={styles.sectionTitle}>Quick Actions</Text>
-                <View style={styles.actionsRow}>
-                    <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/(admin)/reports')}>
-                        <View style={[styles.actionIcon, { backgroundColor: '#FEE2E2' }]}>
-                            <Ionicons name="flag" size={22} color="#EF4444" />
+                <Text style={styles.sectionTitle}>Management</Text>
+                <View style={{ gap: 10 }}>
+                    <TouchableOpacity style={styles.linkRow} onPress={() => router.push('/(admin)/reports')}>
+                        <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
+                            <View style={[styles.iconBox, { backgroundColor: '#FEE2E2' }]}>
+                                <Ionicons name="flag" size={20} color="#EF4444" />
+                            </View>
+                            <Text style={styles.linkText}>View Reports</Text>
                         </View>
-                        <Text style={styles.actionText}>Review Reports</Text>
+                        <Ionicons name="chevron-forward" size={20} color={Neutral[400]} />
                     </TouchableOpacity>
-                    
-                    <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/(admin)/roles')}>
-                        <View style={[styles.actionIcon, { backgroundColor: Blue[50] }]}>
-                            <Ionicons name="shield" size={22} color={Blue[600]} />
+
+                    <TouchableOpacity style={styles.linkRow} onPress={() => router.push('/(admin)/roles')}>
+                        <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
+                            <View style={[styles.iconBox, { backgroundColor: Blue[50] }]}>
+                                <Ionicons name="people" size={20} color={Blue[600]} />
+                            </View>
+                            <Text style={styles.linkText}>Manage Users</Text>
                         </View>
-                        <Text style={styles.actionText}>Manage Roles</Text>
+                        <Ionicons name="chevron-forward" size={20} color={Neutral[400]} />
                     </TouchableOpacity>
-                    
-                    <TouchableOpacity style={styles.actionButton}>
-                        <View style={[styles.actionIcon, { backgroundColor: '#DCFCE7' }]}>
-                            <Ionicons name="stats-chart" size={22} color="#10B981" />
+
+                    <TouchableOpacity style={styles.linkRow} onPress={() => router.push('/(admin)/banned')}>
+                        <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
+                            <View style={[styles.iconBox, { backgroundColor: '#FEF2F2' }]}>
+                                <Ionicons name="ban" size={20} color="#EF4444" />
+                            </View>
+                            <Text style={styles.linkText}>Banned Users</Text>
                         </View>
-                        <Text style={styles.actionText}>Analytics</Text>
+                        <Ionicons name="chevron-forward" size={20} color={Neutral[400]} />
                     </TouchableOpacity>
                 </View>
-                
-                {/* Recent Activity */}
-                <Text style={styles.sectionTitle}>Recent Activity</Text>
-                <Card elevation={2} style={styles.activityCard}>
-                    {RECENT_ACTIVITY.map((activity, index) => (
-                        <View 
-                            key={activity.id} 
-                            style={[
-                                styles.activityItem,
-                                index === RECENT_ACTIVITY.length - 1 && styles.activityItemLast
-                            ]}
-                        >
-                            <View style={[
-                                styles.activityIconContainer,
-                                { backgroundColor: getActivityColor(activity.type) + '20' }
-                            ]}>
-                                <Ionicons 
-                                    name={getActivityIcon(activity.type)} 
-                                    size={16} 
-                                    color={getActivityColor(activity.type)} 
-                                />
-                            </View>
-                            <View style={styles.activityContent}>
-                                <Text style={styles.activityMessage}>{activity.message}</Text>
-                                <Text style={styles.activityTime}>{activity.time}</Text>
-                            </View>
-                        </View>
-                    ))}
-                </Card>
-                
-                {/* Switch Role */}
-                <TouchableOpacity 
-                    style={styles.switchRoleButton}
-                    onPress={() => router.replace('/')}
-                >
-                    <Ionicons name="swap-horizontal" size={20} color={Blue[600]} />
-                    <Text style={styles.switchRoleText}>Switch Role</Text>
+
+                {/* Logout Button */}
+                <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+                    <Ionicons name="log-out-outline" size={20} color="#EF4444" />
+                    <Text style={styles.logoutText}>Log Out</Text>
                 </TouchableOpacity>
             </ScrollView>
         </View>
@@ -174,156 +146,35 @@ export default function AdminDashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: Neutral[50],
-    },
-    header: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingHorizontal: Spacing.base,
-        paddingVertical: Spacing.lg,
-        backgroundColor: '#FFFFFF',
-        borderBottomWidth: 1,
-        borderBottomColor: Neutral[100],
-    },
-    greeting: {
-        fontSize: Typography.size.sm,
-        color: Neutral[500],
-    },
-    adminName: {
-        fontSize: Typography.size.xl,
-        fontWeight: Typography.weight.bold,
-        color: Neutral[900],
-    },
-    content: {
-        flex: 1,
-    },
-    scrollContent: {
-        padding: Spacing.base,
-        paddingBottom: 100,
-    },
-    statsGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'space-between',
-        marginBottom: Spacing.lg,
-    },
-    statCard: {
-        width: '48%',
-        padding: Spacing.md,
-        marginBottom: Spacing.sm,
-        alignItems: 'flex-start',
-    },
+    container: { flex: 1, backgroundColor: Neutral[50] },
+    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Spacing.base, paddingVertical: Spacing.lg, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: Neutral[100] },
+    greeting: { fontSize: Typography.size.sm, color: Neutral[500] },
+    adminName: { fontSize: Typography.size.xl, fontWeight: Typography.weight.bold, color: Neutral[900] },
+    content: { flex: 1, padding: Spacing.base },
+    statsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: Spacing.lg },
+    statCard: { width: '48%', padding: Spacing.md, marginBottom: Spacing.sm, alignItems: 'flex-start' },
     statIcon: {
-        width: 44,
-        height: 44,
-        borderRadius: BorderRadius.lg,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: Spacing.sm,
+        width: 44, height: 44, borderRadius: BorderRadius.lg,
+        alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.sm
     },
-    statNumber: {
-        fontSize: Typography.size['2xl'],
-        fontWeight: Typography.weight.bold,
-        color: Neutral[900],
-    },
-    statLabel: {
-        fontSize: Typography.size.sm,
-        color: Neutral[500],
-    },
-    statChange: {
-        fontSize: Typography.size.xs,
-        color: '#10B981',
-        marginTop: 4,
-    },
-    viewLink: {
-        fontSize: Typography.size.xs,
-        color: Blue[600],
-        marginTop: 4,
-    },
-    sectionTitle: {
-        fontSize: Typography.size.sm,
-        fontWeight: Typography.weight.semibold,
-        color: Neutral[500],
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-        marginBottom: Spacing.sm,
-        marginLeft: Spacing.xs,
-    },
-    actionsRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: Spacing.lg,
-    },
-    actionButton: {
-        flex: 1,
-        backgroundColor: '#FFFFFF',
-        padding: Spacing.md,
-        borderRadius: BorderRadius.lg,
-        alignItems: 'center',
-        marginHorizontal: 4,
-        ...Shadows.sm,
-    },
-    actionIcon: {
-        width: 44,
-        height: 44,
-        borderRadius: BorderRadius.lg,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: Spacing.xs,
-    },
-    actionText: {
-        fontSize: Typography.size.xs,
-        fontWeight: Typography.weight.medium,
-        color: Neutral[700],
-        textAlign: 'center',
-    },
-    activityCard: {
-        marginBottom: Spacing.lg,
-        overflow: 'hidden',
-    },
-    activityItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: Spacing.md,
-        borderBottomWidth: 1,
-        borderBottomColor: Neutral[100],
-    },
-    activityItemLast: {
-        borderBottomWidth: 0,
-    },
-    activityIconContainer: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: Spacing.sm,
-    },
-    activityContent: {
-        flex: 1,
-    },
-    activityMessage: {
-        fontSize: Typography.size.sm,
-        color: Neutral[800],
-    },
-    activityTime: {
-        fontSize: Typography.size.xs,
-        color: Neutral[400],
-        marginTop: 2,
-    },
-    switchRoleButton: {
+    statNumber: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.bold, color: Neutral[900] },
+    statLabel: { fontSize: Typography.size.sm, color: Neutral[500] },
+    sectionTitle: { fontSize: Typography.size.sm, fontWeight: '600', color: Neutral[500], marginBottom: Spacing.sm, marginTop: Spacing.sm },
+    linkRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderRadius: BorderRadius.md, ...Shadows.sm },
+    linkText: { fontSize: 16, fontWeight: '500', color: Neutral[900] },
+    iconBox: { width: 36, height: 36, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+
+    // New Styles for Logout
+    logoutButton: {
+        marginTop: 30,
+        marginBottom: 40,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: Spacing.xs,
-        paddingVertical: Spacing.md,
+        padding: 15,
+        gap: 8,
+        backgroundColor: '#FEF2F2',
+        borderRadius: BorderRadius.md
     },
-    switchRoleText: {
-        fontSize: Typography.size.base,
-        color: Blue[600],
-        fontWeight: Typography.weight.medium,
-    },
+    logoutText: { color: '#EF4444', fontWeight: '600', fontSize: 16 }
 });

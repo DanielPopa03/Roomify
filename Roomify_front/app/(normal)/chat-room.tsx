@@ -8,28 +8,43 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Blue, Neutral, Spacing, Typography, BorderRadius, Shadows } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
-import { ChatApi } from '@/services/api';
+import { ChatApi, UsersApi, PublicUserProfile } from '@/services/api';
 import { SystemMessage, ActionCard } from '@/components/ui';
 import type { ChatMessage as ChatMessageType } from '@/constants/types';
+import ReportModal from '@/components/report-modal';
 
 export default function TenantChatRoomScreen() {
-    const { chatId, title, subTitle } = useLocalSearchParams();
+    const { chatId, title, subTitle, otherUserId } = useLocalSearchParams();
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const flatListRef = useRef<FlatList>(null);
-    const { getAccessToken } = useAuth();
+    const { getAccessToken, user } = useAuth();
 
     const [messages, setMessages] = useState<ChatMessageType[]>([]);
     const [inputText, setInputText] = useState('');
     const [isLoading, setIsLoading] = useState(true);
     const [sending, setSending] = useState(false);
 
-    // NEW: UI State
+    // UI & Workflow State
     const [isActionSheetVisible, setIsActionSheetVisible] = useState(false);
     const [isScheduleModalVisible, setScheduleModalVisible] = useState(false);
     const [proposedDate, setProposedDate] = useState('');
     const [proposedTime, setProposedTime] = useState('');
     const [sendingRequest, setSendingRequest] = useState(false);
+
+    // Landlord profile to show in header
+    const [landlord, setLandlord] = useState<PublicUserProfile | null>(null);
+
+    // Match metadata (countdown)
+    const [matchInfo, setMatchInfo] = useState<any | null>(null);
+    const [secondsLeft, setSecondsLeft] = useState<number>(0);
+    const [countdownActive, setCountdownActive] = useState(false);
+
+    // --- REPORT STATE ---
+    const [reportVisible, setReportVisible] = useState(false);
+    const [messageToReport, setMessageToReport] = useState<any>(null);
+
+    const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
 
     // --- 1. Fetch Messages ---
     const fetchMessages = useCallback(async (showLoading = false) => {
@@ -61,18 +76,83 @@ export default function TenantChatRoomScreen() {
         }
     }, [chatId, getAccessToken]);
 
+    // --- Match Info (Countdown) ---
+    const fetchMatchInfo = useCallback(async () => {
+        try {
+            const token = await getAccessToken();
+            const response = await fetch(`http://${MY_IP}:8080/api/chats/${chatId}/info`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                setMatchInfo(data);
+                setSecondsLeft(data?.timeLeftSeconds || 0);
+                setCountdownActive((data?.timeLeftSeconds || 0) > 0 && !data?.tenantMessaged);
+            }
+        } catch (error) {
+            console.warn('Failed to fetch match info', error);
+        }
+    }, [chatId, getAccessToken, MY_IP]);
+
+    useEffect(() => {
+        if (countdownActive && secondsLeft > 0) {
+            const id = setInterval(() => {
+                setSecondsLeft(s => {
+                    if (s <= 1) {
+                        setCountdownActive(false);
+                        // Refresh conversations when countdown ends
+                        fetchMessages();
+                        fetchMatchInfo();
+                        clearInterval(id);
+                        return 0;
+                    }
+                    return s - 1;
+                });
+            }, 1000);
+            return () => clearInterval(id);
+        }
+    }, [countdownActive, secondsLeft, fetchMessages, fetchMatchInfo]);
+
+    // Utility: format seconds into human readable string
+    const formatSeconds = (sec: number) => {
+        if (!sec || sec <= 0) return '0s';
+        const hours = Math.floor(sec / 3600);
+        const minutes = Math.floor((sec % 3600) / 60);
+        const seconds = sec % 60;
+        if (hours > 0) return `${hours}h ${minutes}m`;
+        if (minutes > 0) return `${minutes}m ${seconds}s`;
+        return `${seconds}s`;
+    };
+
+    // --- 0b. Fetch Landlord Details (if provided) ---
+    useEffect(() => {
+        const fetchLandlord = async () => {
+            if (!otherUserId || typeof otherUserId !== 'string') return;
+            try {
+                const token = await getAccessToken();
+                const res = await UsersApi.getById(token!, otherUserId);
+                if (res.data) setLandlord(res.data);
+            } catch (e) {
+                console.warn('Failed to fetch landlord profile', e);
+            }
+        };
+        fetchLandlord();
+    }, [otherUserId, getAccessToken]);
+
     // --- 3. Lifecycle & Polling ---
     useEffect(() => {
         fetchMessages(true);
         markAsRead();
+        fetchMatchInfo();
 
         const interval = setInterval(() => {
             fetchMessages(false);
             markAsRead();
+            fetchMatchInfo();
         }, 3000);
 
         return () => clearInterval(interval);
-    }, [fetchMessages, markAsRead]);
+    }, [fetchMessages, markAsRead, fetchMatchInfo]);
 
     // --- 4. Send Text Message ---
     const sendMessage = async () => {
@@ -100,9 +180,12 @@ export default function TenantChatRoomScreen() {
             const token = await getAccessToken();
             const matchId = Array.isArray(chatId) ? chatId[0] : chatId;
             if (!token || !matchId) return;
-
             await ChatApi.sendMessage(token, matchId, textToSend);
             fetchMessages();
+            await fetchMatchInfo();
+            // If tenant sent the first message, stop countdown locally
+            setCountdownActive(false);
+            setSecondsLeft(0);
         } catch (error) {
             console.error("Send failed", error);
         } finally {
@@ -110,7 +193,46 @@ export default function TenantChatRoomScreen() {
         }
     };
 
-    // --- 5. Handle Enter Key ---
+    // --- REPORTING LOGIC ---
+    const handleLongPress = (item: any) => {
+        console.log('[Report] trigger for message', item?.id);
+        if (item.sender === 'me') return; // Can't report yourself
+        setMessageToReport(item);
+        setReportVisible(true);
+    };
+
+    const submitReport = async (reason: string, description: string) => {
+        if (!messageToReport) return;
+
+        try {
+            const token = await getAccessToken();
+            const reportedId = typeof otherUserId === 'string' ? otherUserId : (otherUserId?.[0] || "unknown_user");
+
+            const response = await fetch(`http://${MY_IP}:8080/api/reports`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    reportedUserId: reportedId,
+                    reason,
+                    description,
+                    type: 'MESSAGE',
+                    chatId: chatId,
+                    messageId: messageToReport.id,
+                    contentSnapshot: messageToReport.text
+                })
+            });
+
+            if (response.ok) {
+                Alert.alert("Report Submitted", "Thank you. We will review the message.");
+            } else {
+                Alert.alert("Error", "Failed to submit report.");
+            }
+        } catch (e) {
+            Alert.alert("Error", "Network error.");
+        }
+    };
+
+    // --- 5. Handle Enter vs Shift+Enter ---
     const handleKeyPress = (e: any) => {
         if (e.nativeEvent.key === 'Enter' && !e.nativeEvent.shiftKey) {
             e.preventDefault();
@@ -199,29 +321,36 @@ export default function TenantChatRoomScreen() {
         // TEXT messages: standard bubbles
         const isMe = item.sender === 'me';
         return (
-            <View style={[styles.messageBubble, isMe ? styles.myMessage : styles.theirMessage]}>
-                <Text style={[styles.messageText, isMe ? styles.myMessageText : styles.theirMessageText]}>
-                    {item.text}
-                </Text>
-
-                <View style={styles.messageFooter}>
-                    <Text style={[styles.timeText, isMe ? styles.myTimeText : styles.theirTimeText]}>
-                        {item.timestamp}
+            <TouchableOpacity
+                activeOpacity={0.8}
+                onLongPress={() => handleLongPress(item)}
+                onPress={() => { if (item.sender !== 'me') handleLongPress(item); }}
+                delayLongPress={500}
+            >
+                <View style={[styles.messageBubble, isMe ? styles.myMessage : styles.theirMessage]}>
+                    <Text style={[styles.messageText, isMe ? styles.myMessageText : styles.theirMessageText]}>
+                        {item.text}
                     </Text>
 
-                    {isMe && (
-                        <View style={styles.readReceiptContainer}>
-                            {item.isRead ? (
-                                <Ionicons name="checkmark-done" size={16} color="#4ADE80" />
-                            ) : (
-                                <Ionicons name="checkmark" size={16} color="rgba(255,255,255,0.6)" />
-                            )}
-                        </View>
-                    )}
+                    <View style={styles.messageFooter}>
+                        <Text style={[styles.timeText, isMe ? styles.myTimeText : styles.theirTimeText]}>
+                            {item.timestamp}
+                        </Text>
+
+                        {isMe && (
+                            <View style={styles.readReceiptContainer}>
+                                {item.isRead ? (
+                                    <Ionicons name="checkmark-done" size={16} color="#4ADE80" />
+                                ) : (
+                                    <Ionicons name="checkmark" size={16} color="rgba(255,255,255,0.6)" />
+                                )}
+                            </View>
+                        )}
+                    </View>
                 </View>
-            </View>
+            </TouchableOpacity>
         );
-    };
+        };
 
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -233,8 +362,31 @@ export default function TenantChatRoomScreen() {
                 <View style={styles.headerInfo}>
                     <Text style={styles.headerTitle}>{title || 'Chat'}</Text>
                     {subTitle && <Text style={styles.headerSubTitle}>{subTitle}</Text>}
+
+                    {/* Countdown */}
+                    {matchInfo && !matchInfo.tenantMessaged && (matchInfo.timeLeftSeconds > 0 || secondsLeft > 0) && (
+                        <Text style={styles.countdownText}>Time left to message: {formatSeconds(countdownActive ? secondsLeft : (matchInfo.timeLeftSeconds || 0))}</Text>
+                    )}
+
+                    {matchInfo && matchInfo.tenantMessaged && (
+                        <Text style={styles.countdownText}>You already messaged. ✅</Text>
+                    )}
                 </View>
-                <View style={{ width: 32 }} />
+
+                <TouchableOpacity
+                    style={styles.headerAction}
+                    onPress={() => {
+                        if (!otherUserId) return;
+                        const targetId = Array.isArray(otherUserId) ? otherUserId[0] : otherUserId;
+                        if (typeof targetId === 'string' && targetId.trim() !== '') {
+                            router.push({ pathname: `/(normal)/user-profile/[id]`, params: { id: targetId, matchId: chatId } });
+                        }
+                    }}
+                >
+                    <View style={styles.headerAvatarPlaceholder}>
+                        <Text style={styles.headerAvatarInitial}>{landlord?.firstName?.[0] || title?.[0] || 'L'}</Text>
+                    </View>
+                </TouchableOpacity>
             </View>
 
             {isLoading ? (
@@ -370,6 +522,13 @@ export default function TenantChatRoomScreen() {
                     </View>
                 </View>
             </Modal>
+            {/* REPORT MODAL */}
+            <ReportModal
+                visible={reportVisible}
+                onClose={() => setReportVisible(false)}
+                onSubmit={submitReport}
+                targetName="Message"
+            />
         </View>
     );
 }
@@ -382,6 +541,10 @@ const styles = StyleSheet.create({
     headerInfo: { flex: 1, alignItems: 'center' },
     headerTitle: { fontSize: Typography.size.lg, fontWeight: Typography.weight.semibold, color: Neutral[900] },
     headerSubTitle: { fontSize: Typography.size.xs, color: Blue[600] },
+    headerAction: { padding: Spacing.xs },
+    headerAvatarPlaceholder: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#0284C7', alignItems: 'center', justifyContent: 'center' },
+    headerAvatarInitial: { color: '#fff', fontWeight: '700' },
+    countdownText: { fontSize: 12, color: Neutral[500], marginTop: 2 },
     listContent: { padding: Spacing.md, paddingBottom: Spacing.xl },
 
     messageBubble: { maxWidth: '80%', padding: Spacing.md, borderRadius: BorderRadius.lg, marginBottom: Spacing.sm },

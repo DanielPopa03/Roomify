@@ -1,19 +1,16 @@
 package com.roomify.service;
 
-import com.roomify.model.Match;
-import com.roomify.model.Property; // Need Property to score against
-import com.roomify.model.Role;
-import com.roomify.model.User;
-import com.roomify.model.LeaseAgreement;
+import com.roomify.model.*;
 import com.roomify.model.enums.LeaseStatus;
 import com.roomify.model.enums.MatchStatus;
 import com.roomify.model.enums.PreferredTenantType;
 import com.roomify.repository.LeaseAgreementRepository;
 import com.roomify.repository.MatchRepository;
-import com.roomify.repository.PropertyRepository; // Injected
+import com.roomify.repository.PropertyRepository;
 import com.roomify.repository.RoleRepository;
 import com.roomify.repository.UserRepository;
 import jakarta.transaction.Transactional;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
@@ -32,26 +29,25 @@ public class UserService {
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final MatchRepository matchRepository;
+    private final PropertyRepository propertyRepository;
+    // Break circular dependency if PropertyService injects UserService
     private final PropertyService propertyService;
-    private final PropertyRepository propertyRepository; // Added for scoring
     private final LeaseAgreementRepository leaseAgreementRepository;
 
     private final Path rootLocation = Paths.get("uploads");
-    private static final Pattern PHONE_PATTERN = Pattern.compile("^[+]?[0-9\\s\\-\\(\\)]{7,20}$");
-    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$");
 
     public UserService(UserRepository userRepository,
-            RoleRepository roleRepository,
-            MatchRepository matchRepository,
-            PropertyService propertyService,
-            PropertyRepository propertyRepository,
-            LeaseAgreementRepository leaseAgreementRepository) {
+                       RoleRepository roleRepository,
+                       MatchRepository matchRepository,
+                       PropertyRepository propertyRepository,
+                       LeaseAgreementRepository leaseAgreementRepository,
+                       @Lazy PropertyService propertyService) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.matchRepository = matchRepository;
-        this.propertyService = propertyService;
         this.propertyRepository = propertyRepository;
         this.leaseAgreementRepository = leaseAgreementRepository;
+        this.propertyService = propertyService;
         initStorage();
     }
 
@@ -85,25 +81,22 @@ public class UserService {
         }
     }
 
-    // --- LANDLORD VIEWING TENANTS (Reverse Feed) ---
+    // --- LANDLORD FEED LOGIC ---
     public List<User> getTenantFeed(String landlordId, Long propertyId) {
-        // 1. Get all Tenants
+        // 1. Get all potential tenants (Users with ROLE_USER or ROLE_TENANT)
+        // Optimization: In production, filter by role in DB query
         List<User> allUsers = userRepository.findAll();
         List<User> allTenants = allUsers.stream()
                 .filter(u -> u.getRole() != null &&
                         ("USER".equalsIgnoreCase(u.getRole().getName()) ||
                                 "TENANT".equalsIgnoreCase(u.getRole().getName())))
+                .filter(u -> !Boolean.TRUE.equals(u.getIsBanned())) // Exclude banned users
                 .collect(Collectors.toList());
 
         if (propertyId == null)
             return allTenants;
 
-        // 2. Filter Interacted Users (Hide Matched/Liked)
-        // Keep Declined tenants visible if you want to retry? Usually we hide them.
-        // For consistency with PropertyFeed, let's keep them if we want Soft Scoring on
-        // Dislikes.
-        // But typically for people, if you dislike a person, they should be gone.
-        // Let's stick to the requested logic: Soft Penalty.
+        // 2. Filter out tenants already interacted with (Matched or Liked by Landlord)
 
         List<Match> history = matchRepository.findTenantIdsInteractedByLandlord(landlordId, propertyId).stream()
                 .map(id -> matchRepository.findByTenant_IdAndProperty_Id(id, propertyId).orElse(null))
@@ -115,7 +108,7 @@ public class UserService {
                 .map(m -> m.getTenant().getId())
                 .collect(Collectors.toSet());
 
-        // 3. Score Tenants against the Property
+        // 3. Score tenants against property requirements
         Property property = propertyRepository.findById(propertyId).orElseThrow();
         Map<String, Double> scores = new HashMap<>();
 
@@ -125,29 +118,29 @@ public class UserService {
 
             double score = 50.0;
 
-            // 1. Pets (Dealbreaker for Landlord)
-            // If tenant has pets but property is NOT pet friendly -> Hide (-100)
+            // Rule A: Pets (Dealbreaker)
             if (Boolean.TRUE.equals(tenant.getHasPets()) && Boolean.FALSE.equals(property.getPetFriendly())) {
                 score = -100.0;
             }
 
-            // 2. Smoking (Dealbreaker)
+            // Rule B: Smoking (Dealbreaker)
             if (Boolean.TRUE.equals(tenant.getIsSmoker()) && Boolean.FALSE.equals(property.getSmokerFriendly())) {
                 score = -100.0;
             }
 
-            // 3. Tenant Type (SOFT Penalty -20)
+            // Rule C: Tenant Type (Soft Preference)
             if (score > 0 && property.getPreferredTenants() != null && !property.getPreferredTenants().isEmpty()) {
                 if (tenant.getTenantType() != null) {
                     boolean isAccepted = property.getPreferredTenants().contains(tenant.getTenantType());
                     if (!isAccepted) {
-                        score -= 20.0; // Soft Penalty
+                        score -= 20.0;
                     } else {
-                        score += 20.0; // Bonus
+                        score += 20.0;
                     }
                 }
             }
 
+            // Rule D: Previous interactions (if declined, lower score but maybe keep visible)
             // 4. History Penalty (If previously declined)
             Optional<Match> prevInteraction = history.stream().filter(m -> m.getTenant().getId().equals(tenant.getId()))
                     .findFirst();
@@ -155,12 +148,13 @@ public class UserService {
                 score += prevInteraction.get().getScore(); // Adds negative score
             }
 
+
             if (score > 0.0) {
                 scores.put(tenant.getId(), score);
             }
         }
 
-        // 4. Sort
+        // 4. Return sorted list
         return allTenants.stream()
                 .filter(t -> scores.containsKey(t.getId()))
                 .sorted((t1, t2) -> Double.compare(scores.get(t2.getId()), scores.get(t1.getId())))
@@ -189,14 +183,10 @@ public class UserService {
 
         return userRepository.findById(id)
                 .map(existingUser -> {
-                    if (payload.containsKey("name"))
-                        existingUser.setFirstName((String) payload.get("name"));
-                    if (payload.containsKey("bio"))
-                        existingUser.setBio((String) payload.get("bio"));
-                    if (payload.containsKey("phoneNumber"))
-                        existingUser.setPhoneNumber(phoneInput);
-                    if (payload.containsKey("email"))
-                        existingUser.setEmail(emailInput);
+                    if (payload.containsKey("name")) existingUser.setFirstName((String) payload.get("name"));
+                    if (payload.containsKey("bio")) existingUser.setBio((String) payload.get("bio"));
+                    if (payload.containsKey("phoneNumber")) existingUser.setPhoneNumber(phoneInput);
+                    if (payload.containsKey("email")) existingUser.setEmail(emailInput);
 
                     if (payload.containsKey("role")) {
                         roleRepository.findByName(((String) payload.get("role")).toUpperCase())
@@ -214,15 +204,13 @@ public class UserService {
                         existingUser.setHasPets((Boolean) payload.get("hasPets"));
                     if (payload.containsKey("wantsExtraBathroom"))
                         existingUser.setWantsExtraBathroom((Boolean) payload.get("wantsExtraBathroom"));
+                    if (payload.containsKey("wantsExtraBathroom")) existingUser.setWantsExtraBathroom((Boolean) payload.get("wantsExtraBathroom"));
                     if (payload.containsKey("minRooms") && payload.get("minRooms") instanceof Number)
                         existingUser.setMinRooms(((Number) payload.get("minRooms")).intValue());
 
                     if (payload.containsKey("tenantType")) {
-                        try {
-                            existingUser.setTenantType(
-                                    PreferredTenantType.fromDisplayName((String) payload.get("tenantType")));
-                        } catch (Exception ignored) {
-                        }
+                        try { existingUser.setTenantType(PreferredTenantType.fromDisplayName((String) payload.get("tenantType"))); }
+                        catch (Exception ignored) {}
                     }
 
                     if (payload.containsKey("photos"))
@@ -232,8 +220,14 @@ public class UserService {
                 })
                 .orElseGet(() -> {
                     Role defaultRole = roleRepository.findByName("USER").orElse(null);
-                    User.UserBuilder newUser = User.builder().id(id).firstName((String) payload.get("name"))
-                            .email(emailInput).phoneNumber(phoneInput).role(defaultRole);
+                    User.UserBuilder newUser = User.builder()
+                            .id(id)
+                            .firstName((String) payload.get("name"))
+                            .email(emailInput)
+                            .phoneNumber(phoneInput)
+                            .role(defaultRole)
+                            .seriousnessScore(100) // Default score
+                            .isBanned(false);
 
                     if (payload.containsKey("isSmoker"))
                         newUser.isSmoker((Boolean) payload.get("isSmoker"));
@@ -326,6 +320,8 @@ public class UserService {
                     .firstName(jwt.getClaimAsString("name") != null ? jwt.getClaimAsString("name") : "New User")
                     .picture(pictureUrl)
                     .photos(pictureUrl != null ? Collections.singletonList(pictureUrl) : new ArrayList<>())
+                    .isBanned(false)
+                    .seriousnessScore(100)
                     .build();
 
             return userRepository.save(newUser);
@@ -340,10 +336,6 @@ public class UserService {
         return userRepository.existsByEmailFlexible(email.trim(), currentUserId);
     }
 
-    /**
-     * Saves or updates a user entity.
-     * Used by interview confirmation to persist profile changes.
-     */
     @Transactional
     public User saveUser(User user) {
         return userRepository.save(user);

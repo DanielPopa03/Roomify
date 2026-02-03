@@ -18,4 +18,8 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
 
     // [NEW] Find unread messages where the sender is NOT the current user
     List<ChatMessage> findByMatchIdAndSenderIdNotAndIsReadFalse(Long matchId, String currentUserId);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.transaction.annotation.Transactional
+    void deleteByMatchId(Long matchId);
 }
