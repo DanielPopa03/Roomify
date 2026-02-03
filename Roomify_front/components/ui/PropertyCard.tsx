@@ -19,6 +19,7 @@ interface PropertyCardProps {
   bedrooms?: number;
   bathrooms?: number;
   area?: number;
+  isTrending?: boolean;
 }
 
 export function PropertyCard({
@@ -30,6 +31,8 @@ export function PropertyCard({
   bedrooms,
   bathrooms,
   area,
+  isTrending,
+  id,
 }: PropertyCardProps) {
   const imageUri = images?.[0] || 'https://via.placeholder.com/400x300?text=No+Image';
 
@@ -46,6 +49,13 @@ export function PropertyCard({
       <View style={styles.priceBadge}>
         <Text style={styles.priceText}>{formatRent(price)}</Text>
       </View>
+
+      {/* Trending Badge */}
+      {isTrending && (
+        <View style={styles.trendingBadge}>
+          <Text style={styles.trendingText}>🔥 Trending</Text>
+        </View>
+      )}
 
       {/* Content */}
       <View style={styles.content}>
@@ -115,6 +125,24 @@ const styles = StyleSheet.create({
   priceText: {
     color: '#FFFFFF',
     fontSize: Typography.size.base,
+    fontWeight: Typography.weight.bold,
+  },
+  trendingBadge: {
+    position: 'absolute',
+    top: Spacing.md,
+    left: Spacing.md,
+    backgroundColor: 'rgba(239, 68, 68, 0.9)', // Red-500 with opacity
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.base,
+    flexDirection: 'row',
+    alignItems: 'center',
+    zIndex: 10,
+    elevation: 10,
+  },
+  trendingText: {
+    color: '#FFFFFF',
+    fontSize: Typography.size.xs,
     fontWeight: Typography.weight.bold,
   },
   content: {

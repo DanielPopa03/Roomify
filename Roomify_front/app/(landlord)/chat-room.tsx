@@ -10,9 +10,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Video, ResizeMode } from 'expo-av';
 import { Blue, Neutral, Spacing, Typography, BorderRadius, Shadows } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
-import { InterviewApi, UsersApi, PublicUserProfile } from '@/services/api';
-import { SafeImage } from '@/components/ui';
-// 1. IMPORT REPORT MODAL
+import { InterviewApi, UsersApi, PublicUserProfile, ChatApi } from '@/services/api';
+import { SafeImage, SystemMessage, ActionCard } from '@/components/ui';
+import type { ChatMessage as ChatMessageType } from '@/constants/types';
 import ReportModal from '@/components/report-modal';
 
 const formatSeconds = (sec: number) => {
@@ -34,16 +34,24 @@ export default function ChatRoomScreen() {
     const flatListRef = useRef<FlatList>(null);
     const { getAccessToken } = useAuth();
 
-    const [messages, setMessages] = useState<any[]>([]);
+    const [messages, setMessages] = useState<ChatMessageType[]>([]);
     const [inputText, setInputText] = useState('');
     const [isLoading, setIsLoading] = useState(true);
     const [sending, setSending] = useState(false);
 
-    // New Feature State
+    // UI / Workflow / Reporting State
     const [isActionSheetVisible, setIsActionSheetVisible] = useState(false);
     const [isVideoModalVisible, setVideoModalVisible] = useState(false);
     const [tenant, setTenant] = useState<PublicUserProfile | null>(null);
     const [sendingRequest, setSendingRequest] = useState(false);
+
+    // NEW: Workflow modals
+    const [isScheduleModalVisible, setScheduleModalVisible] = useState(false);
+    const [isRentModalVisible, setRentModalVisible] = useState(false);
+    const [proposedDate, setProposedDate] = useState('');
+    const [proposedTime, setProposedTime] = useState('');
+    const [rentPrice, setRentPrice] = useState('');
+    const [rentStartDate, setRentStartDate] = useState('');
 
     // --- 2. REPORT STATE ---
     const [reportModalVisible, setReportModalVisible] = useState(false);
@@ -73,37 +81,33 @@ export default function ChatRoomScreen() {
         fetchTenant();
     }, [otherUserId, getAccessToken]);
 
-    // --- 1. Mark Messages as Read ---
-    const markAsRead = useCallback(async () => {
-        try {
-            const token = await getAccessToken();
-            await fetch(`http://${MY_IP}:8080/api/chats/${chatId}/read`, {
-                method: 'PUT',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-        } catch (error) {
-            console.error("Failed to mark messages as read", error);
-        }
-    }, [chatId, getAccessToken, MY_IP]);
-
-    // --- 2. Fetch Messages ---
+    // --- 1. Fetch Messages (using new ChatApi with parsed metadata) ---
     const fetchMessages = useCallback(async (showLoading = false) => {
         try {
             const token = await getAccessToken();
-            const response = await fetch(`http://${MY_IP}:8080/api/chats/${chatId}/messages`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                setMessages(data);
+            if (!token || !chatId) return;
+            
+            const response = await ChatApi.getMessages(token, chatId);
+            if (response.data) {
+                setMessages(response.data);
             }
         } catch (error) {
             console.error("Failed to fetch messages", error);
         } finally {
             if (showLoading) setIsLoading(false);
         }
-    }, [chatId, getAccessToken, MY_IP]);
+    }, [chatId, getAccessToken]);
+
+    // --- 2. Mark Messages as Read ---
+    const markAsRead = useCallback(async () => {
+        try {
+            const token = await getAccessToken();
+            if (!token || !chatId) return;
+            await ChatApi.markAsRead(token, chatId);
+        } catch (error) {
+            console.error("Failed to mark messages as read", error);
+        }
+    }, [chatId, getAccessToken]);
 
     // --- Match Info (Countdown) ---
     const fetchMatchInfo = useCallback(async () => {
@@ -153,7 +157,7 @@ export default function ChatRoomScreen() {
         return () => clearInterval(interval);
     }, [fetchMessages, markAsRead, fetchMatchInfo]);
 
-    // --- 4. Send Message Logic ---
+    // --- 4. Send Text Message ---
     const sendMessage = async (text: string = inputText) => {
         if (!text.trim()) return;
         const textToSend = text.trim();
@@ -161,9 +165,11 @@ export default function ChatRoomScreen() {
         setSending(true);
 
         const tempId = Date.now().toString();
-        const optimisticMessage = {
+        const optimisticMessage: ChatMessageType = {
             id: tempId,
             text: textToSend,
+            type: 'TEXT',
+            metadata: null,
             sender: 'me',
             isRead: false,
             timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
@@ -174,11 +180,8 @@ export default function ChatRoomScreen() {
 
         try {
             const token = await getAccessToken();
-            await fetch(`http://${MY_IP}:8080/api/chats/${chatId}/messages`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: textToSend })
-            });
+            if (!token || !chatId) return;
+            await ChatApi.sendMessage(token, chatId, textToSend);
             fetchMessages();
             fetchMatchInfo();
         } catch (error) {
@@ -188,6 +191,7 @@ export default function ChatRoomScreen() {
         }
     };
 
+    // --- 5. Handle Enter Key ---
     const handleKeyPress = (e: any) => {
         if (e.nativeEvent.key === 'Enter' && !e.nativeEvent.shiftKey) {
             e.preventDefault();
@@ -197,6 +201,7 @@ export default function ChatRoomScreen() {
 
     const handleVideoAction = async (type: 'play' | 'unlock' | 'record') => {
         setIsActionSheetVisible(false);
+
         if (type === 'play') {
             setVideoModalVisible(true);
             return;
@@ -210,11 +215,97 @@ export default function ChatRoomScreen() {
         setSendingRequest(false);
     };
 
+    // --- 7. NEW: Schedule Viewing ---
+    const handleScheduleViewing = async () => {
+        if (!proposedDate || !proposedTime) {
+            Alert.alert('Missing Info', 'Please enter both date and time.');
+            return;
+        }
+
+        // Format: 2026-03-15T14:00:00
+        const dateTime = `${proposedDate}T${proposedTime}:00`;
+        console.log('[DEBUG] Proposing viewing with dateTime:', dateTime); // Debug log
+        
+        setSendingRequest(true);
+        try {
+            const token = await getAccessToken();
+            console.log('[DEBUG] Token retrieved:', token ? 'Yes' : 'No'); // Debug log
+            if (!token) {
+                Alert.alert('Auth Error', 'Unable to get authentication token. Please log in again.');
+                return;
+            }
+            if (!chatId) return;
+            
+            const response = await ChatApi.proposeViewing(token, chatId, dateTime);
+            if (response.error) {
+                Alert.alert('Error', response.error);
+            } else {
+                setScheduleModalVisible(false);
+                setProposedDate('');
+                setProposedTime('');
+                fetchMessages();
+            }
+        } catch (error) {
+            Alert.alert('Error', 'Failed to propose viewing');
+        } finally {
+            setSendingRequest(false);
+        }
+    };
+
+    // --- 8. NEW: Send Rent Proposal ---
+    const handleSendRentProposal = async () => {
+        const price = parseFloat(rentPrice);
+        if (isNaN(price) || price <= 0) {
+            Alert.alert('Invalid Price', 'Please enter a valid monthly rent.');
+            return;
+        }
+        if (!rentStartDate) {
+            Alert.alert('Missing Date', 'Please enter a lease start date.');
+            return;
+        }
+
+        setSendingRequest(true);
+        try {
+            const token = await getAccessToken();
+            if (!token || !chatId) return;
+            
+            const response = await ChatApi.sendRentProposal(token, chatId, price, rentStartDate);
+            if (response.error) {
+                Alert.alert('Error', response.error);
+            } else {
+                setRentModalVisible(false);
+                setRentPrice('');
+                setRentStartDate('');
+                fetchMessages();
+            }
+        } catch (error) {
+            Alert.alert('Error', 'Failed to send rent proposal');
+        } finally {
+            setSendingRequest(false);
+        }
+    };
+
+    // --- 9. NEW: Accept Viewing (from ActionCard) ---
+    const handleAcceptViewing = async () => {
+        try {
+            const token = await getAccessToken();
+            if (!token || !chatId) return;
+            
+            const response = await ChatApi.acceptViewing(token, chatId);
+            if (response.error) {
+                Alert.alert('Error', response.error);
+            } else {
+                fetchMessages();
+            }
+        } catch (error) {
+            Alert.alert('Error', 'Failed to accept viewing');
+        }
+    };
+
     // --- 5. REPORTING LOGIC ---
 
     // A. Long Press on Message
-    const handleLongPress = (item: any) => {
-        if (item.sender === 'me') return; // Can't report self
+    const handleLongPress = (item: any) => {        console.log('[Report] trigger for message', item?.id);        if (item.sender === 'me') return; // Can't report self
         setMessageToReport(item);
         setReportType('MESSAGE');
         setReportModalVisible(true);
@@ -261,26 +352,52 @@ export default function ChatRoomScreen() {
         }
     };
 
-    const renderMessage = ({ item }: { item: any }) => {
+    // --- 10. NEW: Render Message with Type Switching ---
+    const renderMessage = ({ item }: { item: ChatMessageType }) => {
+        // SYSTEM messages: centered gray text
+        if (item.type === 'SYSTEM') {
+            return <SystemMessage text={item.text} timestamp={item.timestamp} />;
+        }
+
+        // ACTION_CARD messages: interactive cards
+        if (item.type === 'ACTION_CARD' && item.metadata) {
+            return (
+                <ActionCard
+                    metadata={item.metadata}
+                    sender={item.sender}
+                    timestamp={item.timestamp}
+                    onAcceptViewing={item.sender !== 'me' ? handleAcceptViewing : undefined}
+                    onPayRent={undefined} // Landlord can't pay rent
+                />
+            );
+        }
+
+        // TEXT messages: standard bubbles
         const isMe = item.sender === 'me';
         return (
             <TouchableOpacity
                 activeOpacity={0.8}
-                // Enable long press to report specific messages
                 onLongPress={() => handleLongPress(item)}
+                onPress={() => { if (item.sender !== 'me') handleLongPress(item); }}
                 delayLongPress={500}
             >
                 <View style={[styles.messageBubble, isMe ? styles.myMessage : styles.theirMessage]}>
                     <Text style={[styles.messageText, isMe ? styles.myMessageText : styles.theirMessageText]}>
                         {item.text}
                     </Text>
+
                     <View style={styles.messageFooter}>
                         <Text style={[styles.timeText, isMe ? styles.myTimeText : styles.theirTimeText]}>
                             {item.timestamp}
                         </Text>
+
                         {isMe && (
                             <View style={styles.readReceiptContainer}>
-                                <Ionicons name={item.isRead ? "checkmark-done" : "checkmark"} size={16} color={item.isRead ? "#4ADE80" : "rgba(255,255,255,0.6)"} />
+                                {item.isRead ? (
+                                    <Ionicons name="checkmark-done" size={16} color="#4ADE80" />
+                                ) : (
+                                    <Ionicons name="checkmark" size={16} color="rgba(255,255,255,0.6)" />
+                                )}
                             </View>
                         )}
                     </View>
@@ -288,6 +405,8 @@ export default function ChatRoomScreen() {
             </TouchableOpacity>
         );
     };
+
+
 
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -366,6 +485,39 @@ export default function ChatRoomScreen() {
                     <View style={styles.actionSheet}>
                         <View style={styles.actionSheetHandle} />
                         <Text style={styles.actionSheetTitle}>Chat Actions</Text>
+                        {/* NEW: Schedule Viewing */}
+                        <TouchableOpacity 
+                            style={styles.actionItem}
+                            onPress={() => {
+                                setIsActionSheetVisible(false);
+                                setScheduleModalVisible(true);
+                            }}
+                        >
+                            <View style={[styles.actionIcon, { backgroundColor: '#FEF3C7' }]}>
+                                <Ionicons name="calendar-outline" size={24} color="#F59E0B" />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.actionText}>📅 Schedule Viewing</Text>
+                                <Text style={styles.actionSubtext}>Propose a date to meet</Text>
+                            </View>
+                        </TouchableOpacity>
+
+                        {/* NEW: Send Rent Offer */}
+                        <TouchableOpacity 
+                            style={styles.actionItem}
+                            onPress={() => {
+                                setIsActionSheetVisible(false);
+                                setRentModalVisible(true);
+                            }}
+                        >
+                            <View style={[styles.actionIcon, { backgroundColor: '#DCFCE7' }]}>
+                                <Ionicons name="home-outline" size={24} color="#22C55E" />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.actionText}>📝 Send Rent Offer</Text>
+                                <Text style={styles.actionSubtext}>Make a formal rental proposal</Text>
+                            </View>
+                        </TouchableOpacity>
 
                         {/* Video Actions */}
                         <TouchableOpacity style={styles.actionItem} onPress={() => {
@@ -376,6 +528,7 @@ export default function ChatRoomScreen() {
                             else if (hasVideo && !isPublic) handleVideoAction('unlock');
                             else handleVideoAction('record');
                         }}>
+
                             <View style={[styles.actionIcon, { backgroundColor: '#F3E8FF' }]}>
                                 <Ionicons name="videocam-outline" size={24} color="#9333EA" />
                             </View>
@@ -413,6 +566,110 @@ export default function ChatRoomScreen() {
                         <View style={{ height: Spacing.xl + insets.bottom }} />
                     </View>
                 </TouchableOpacity>
+            </Modal>
+
+            {/* Schedule Viewing Modal */}
+            <Modal
+                visible={isScheduleModalVisible}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setScheduleModalVisible(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.formModal}>
+                        <Text style={styles.formModalTitle}>📅 Schedule Viewing</Text>
+                        
+                        <Text style={styles.inputLabel}>Date (YYYY-MM-DD)</Text>
+                        <TextInput
+                            style={styles.formInput}
+                            placeholder="2026-03-15"
+                            value={proposedDate}
+                            onChangeText={setProposedDate}
+                            keyboardType="numbers-and-punctuation"
+                        />
+                        
+                        <Text style={styles.inputLabel}>Time (HH:MM)</Text>
+                        <TextInput
+                            style={styles.formInput}
+                            placeholder="14:00"
+                            value={proposedTime}
+                            onChangeText={setProposedTime}
+                            keyboardType="numbers-and-punctuation"
+                        />
+                        
+                        <View style={styles.formButtons}>
+                            <TouchableOpacity 
+                                style={styles.cancelButton}
+                                onPress={() => setScheduleModalVisible(false)}
+                            >
+                                <Text style={styles.cancelButtonText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity 
+                                style={[styles.submitButton, sendingRequest && { opacity: 0.5 }]}
+                                onPress={handleScheduleViewing}
+                                disabled={sendingRequest}
+                            >
+                                {sendingRequest ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                    <Text style={styles.submitButtonText}>Propose</Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Rent Proposal Modal */}
+            <Modal
+                visible={isRentModalVisible}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setRentModalVisible(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.formModal}>
+                        <Text style={styles.formModalTitle}>📝 Send Rent Offer</Text>
+                        
+                        <Text style={styles.inputLabel}>Monthly Rent (EUR)</Text>
+                        <TextInput
+                            style={styles.formInput}
+                            placeholder="450"
+                            value={rentPrice}
+                            onChangeText={setRentPrice}
+                            keyboardType="numeric"
+                        />
+                        
+                        <Text style={styles.inputLabel}>Lease Start Date (YYYY-MM-DD)</Text>
+                        <TextInput
+                            style={styles.formInput}
+                            placeholder="2026-04-01"
+                            value={rentStartDate}
+                            onChangeText={setRentStartDate}
+                            keyboardType="numbers-and-punctuation"
+                        />
+                        
+                        <View style={styles.formButtons}>
+                            <TouchableOpacity 
+                                style={styles.cancelButton}
+                                onPress={() => setRentModalVisible(false)}
+                            >
+                                <Text style={styles.cancelButtonText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity 
+                                style={[styles.submitButton, { backgroundColor: '#22C55E' }, sendingRequest && { opacity: 0.5 }]}
+                                onPress={handleSendRentProposal}
+                                disabled={sendingRequest}
+                            >
+                                {sendingRequest ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                    <Text style={styles.submitButtonText}>Send Offer</Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
             </Modal>
 
             {/* Video Player Modal */}
@@ -481,6 +738,19 @@ const styles = StyleSheet.create({
     actionIcon: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginRight: Spacing.md },
     actionText: { fontSize: Typography.size.base, fontWeight: '600', color: Neutral[900] },
     actionSubtext: { fontSize: Typography.size.xs, color: Neutral[500], marginTop: 2 },
+
+    // Form Modals
+    formModal: { backgroundColor: '#fff', marginHorizontal: Spacing.lg, borderRadius: BorderRadius.lg, padding: Spacing.lg, ...Shadows.lg },
+    formModalTitle: { fontSize: Typography.size.xl, fontWeight: '700', color: Neutral[900], marginBottom: Spacing.lg, textAlign: 'center' },
+    inputLabel: { fontSize: Typography.size.sm, fontWeight: '600', color: Neutral[700], marginBottom: Spacing.xs },
+    formInput: { backgroundColor: Neutral[50], borderRadius: BorderRadius.base, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, fontSize: 16, marginBottom: Spacing.md, borderWidth: 1, borderColor: Neutral[200] },
+    formButtons: { flexDirection: 'row', justifyContent: 'space-between', marginTop: Spacing.md },
+    cancelButton: { flex: 1, padding: Spacing.md, marginRight: Spacing.sm, borderRadius: BorderRadius.base, backgroundColor: Neutral[100], alignItems: 'center' },
+    cancelButtonText: { fontSize: Typography.size.base, fontWeight: '600', color: Neutral[700] },
+    submitButton: { flex: 1, padding: Spacing.md, marginLeft: Spacing.sm, borderRadius: BorderRadius.base, backgroundColor: Blue[600], alignItems: 'center' },
+    submitButtonText: { fontSize: Typography.size.base, fontWeight: '600', color: '#fff' },
+
+    // Video Modal
     videoModalContainer: { flex: 1, backgroundColor: '#000', justifyContent: 'center' },
     modalCloseButton: { position: 'absolute', right: 20, zIndex: 10, padding: 10 },
     videoPlayerWrapper: { width: '100%', height: 300, backgroundColor: '#000' },

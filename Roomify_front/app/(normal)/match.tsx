@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 
 const formatSeconds = (sec: number) => {
     if (!sec || sec <= 0) return '0s';
@@ -10,26 +10,88 @@ const formatSeconds = (sec: number) => {
     return `${seconds}s`;
 };
 import {
-    View, Text, FlatList, StyleSheet, Image, TouchableOpacity, RefreshControl, ActivityIndicator
+    View, Text, FlatList, StyleSheet, Image, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Platform
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router'; // Added useFocusEffect
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-import { Header, EmptyState } from '@/components/ui'; // Assuming these exist based on context
+import { Header, EmptyState } from '@/components/ui';
 import { Blue, Neutral, Typography, Spacing, BorderRadius } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import Api from '@/services/api';
 
 export default function MatchScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const { getAccessToken, user } = useAuth();
+    const { payment_session_id, paymentCancelled } = useLocalSearchParams<{ payment_session_id?: string; paymentCancelled?: string }>();
 
     const [conversations, setConversations] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [verifyingPayment, setVerifyingPayment] = useState(false);
 
     const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
+
+    // Handle payment session verification when returning from Stripe
+    useEffect(() => {
+        const verifyPayment = async () => {
+            if (!payment_session_id) return;
+            
+            setVerifyingPayment(true);
+            console.log('[Match] Verifying payment session:', payment_session_id);
+            
+            try {
+                const token = await getAccessToken();
+                if (!token) throw new Error('No access token');
+                
+                const response = await Api.Payments.verifyCheckoutSession(token, payment_session_id);
+                console.log('[Match] Payment verification response:', response);
+                
+                if (response.error) {
+                    throw new Error(response.error);
+                }
+                
+                // Show success message
+                if (Platform.OS === 'web') {
+                    window.alert('🎉 Payment successful! Your lease is now active.');
+                } else {
+                    Alert.alert('Payment Successful', '🎉 Your lease is now active!');
+                }
+                
+                // Refresh conversations to show updated status
+                fetchConversations();
+                
+                // Clear the URL parameter
+                router.replace('/(normal)/match');
+                
+            } catch (error: any) {
+                console.error('[Match] Payment verification error:', error);
+                if (Platform.OS === 'web') {
+                    window.alert(`Payment verification failed: ${error.message}`);
+                } else {
+                    Alert.alert('Payment Issue', error.message || 'Failed to verify payment');
+                }
+            } finally {
+                setVerifyingPayment(false);
+            }
+        };
+        
+        verifyPayment();
+    }, [payment_session_id]);
+
+    // Handle cancelled payment
+    useEffect(() => {
+        if (paymentCancelled === 'true') {
+            if (Platform.OS === 'web') {
+                window.alert('Payment was cancelled.');
+            } else {
+                Alert.alert('Payment Cancelled', 'You can try again when you\'re ready.');
+            }
+            router.replace('/(normal)/match');
+        }
+    }, [paymentCancelled]);
 
     const fetchConversations = useCallback(async () => {
         try {
@@ -134,8 +196,11 @@ export default function MatchScreen() {
                 <Text style={{ fontSize: 12, color: Neutral[500], marginTop: 6 }}>Time left shows how long you have to send the first message after a match.</Text>
             </View>
 
-            {isLoading ? (
-                <View style={styles.centered}><ActivityIndicator color={Blue[600]} /></View>
+            {isLoading || verifyingPayment ? (
+                <View style={styles.centered}>
+                    <ActivityIndicator color={Blue[600]} />
+                    {verifyingPayment && <Text style={{ marginTop: 10, color: Neutral[600] }}>Verifying payment...</Text>}
+                </View>
             ) : conversations.length === 0 ? (
                 <EmptyState
                     icon="chatbubbles-outline"

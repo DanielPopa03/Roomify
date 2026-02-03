@@ -94,6 +94,9 @@ export interface Property {
   images: PropertyImage[];
   createdAt?: string;
   updatedAt?: string;
+  // Social Proof Fields (populated by backend)
+  activeViewersCount?: number;  // Only on single property view (null on feed)
+  isTrending?: boolean;         // True if property has 5+ likes in last 48h
 }
 
 export interface Conversation {
@@ -161,8 +164,22 @@ async function fetchApi<T>(
 
     if (!response.ok) {
       const errorText = await response.text();
+      
+      // Try to parse as JSON to extract error message
+      let errorMessage = errorText || `Request failed with status ${status}`;
+      try {
+        const errorJson = JSON.parse(errorText);
+        if (errorJson.error) {
+          errorMessage = errorJson.error;
+        } else if (errorJson.message) {
+          errorMessage = errorJson.message;
+        }
+      } catch {
+        // Not JSON, use raw text
+      }
+      
       return {
-        error: errorText || `Request failed with status ${status}`,
+        error: errorMessage,
         status,
       };
     }
@@ -665,6 +682,197 @@ export const InterviewApi = {
   },
 };
 
+// ============================================
+// CHAT API (Rental Workflow)
+// ============================================
+
+import type { ChatMessage, ChatMessageMetadata } from '@/constants/types';
+
+/**
+ * Helper to parse metadata JSON string into typed object.
+ */
+const parseMetadata = (metadataStr: string | null | undefined): ChatMessageMetadata | null => {
+  if (!metadataStr) return null;
+  try {
+    return JSON.parse(metadataStr) as ChatMessageMetadata;
+  } catch (e) {
+    console.error('[ChatApi] Failed to parse metadata:', e);
+    return null;
+  }
+};
+
+/**
+ * Transform raw API message to typed ChatMessage with parsed metadata.
+ */
+const transformMessage = (raw: any): ChatMessage => ({
+  id: raw.id,
+  text: raw.text,
+  type: raw.type || 'TEXT',
+  metadata: parseMetadata(raw.metadata),
+  sender: raw.sender,
+  isRead: raw.isRead,
+  timestamp: raw.timestamp,
+});
+
+export const ChatApi = {
+  /**
+   * Get messages for a chat room with parsed metadata.
+   */
+  getMessages: async (accessToken: string, matchId: string): Promise<ApiResponse<ChatMessage[]>> => {
+    const response = await fetchApi<any[]>(`/api/chats/${matchId}/messages`, { method: 'GET' }, accessToken);
+    if (response.data) {
+      return {
+        ...response,
+        data: response.data.map(transformMessage),
+      };
+    }
+    return response as ApiResponse<ChatMessage[]>;
+  },
+
+  /**
+   * Send a text message.
+   */
+  sendMessage: async (accessToken: string, matchId: string, text: string): Promise<ApiResponse<ChatMessage>> => {
+    const response = await fetchApi<any>(
+      `/api/chats/${matchId}/messages`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ text }),
+      },
+      accessToken
+    );
+    if (response.data) {
+      return { ...response, data: transformMessage(response.data) };
+    }
+    return response as ApiResponse<ChatMessage>;
+  },
+
+  /**
+   * Propose a viewing date. Both landlord and tenant can call this.
+   * @param date - ISO 8601 datetime string (e.g., "2026-03-15T14:00:00")
+   */
+  proposeViewing: async (accessToken: string, matchId: string, date: string): Promise<ApiResponse<ChatMessage>> => {
+    const response = await fetchApi<any>(
+      `/api/chats/${matchId}/viewing/propose`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ date }),
+      },
+      accessToken
+    );
+    if (response.data) {
+      return { ...response, data: transformMessage(response.data) };
+    }
+    return response as ApiResponse<ChatMessage>;
+  },
+
+  /**
+   * Accept a proposed viewing. Creates a SYSTEM message.
+   */
+  acceptViewing: async (accessToken: string, matchId: string): Promise<ApiResponse<ChatMessage>> => {
+    const response = await fetchApi<any>(
+      `/api/chats/${matchId}/viewing/accept`,
+      { method: 'POST' },
+      accessToken
+    );
+    if (response.data) {
+      return { ...response, data: transformMessage(response.data) };
+    }
+    return response as ApiResponse<ChatMessage>;
+  },
+
+  /**
+   * Send a rent proposal. Only landlord can call this.
+   * @param price - Monthly rent amount
+   * @param startDate - Lease start date (ISO 8601 date, e.g., "2026-04-01")
+   * @param currency - Currency code (default: EUR)
+   */
+  sendRentProposal: async (
+    accessToken: string,
+    matchId: string,
+    price: number,
+    startDate: string,
+    currency: string = 'EUR'
+  ): Promise<ApiResponse<ChatMessage>> => {
+    const response = await fetchApi<any>(
+      `/api/chats/${matchId}/rent/propose`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ price, startDate, currency }),
+      },
+      accessToken
+    );
+    if (response.data) {
+      return { ...response, data: transformMessage(response.data) };
+    }
+    return response as ApiResponse<ChatMessage>;
+  },
+
+  /**
+   * Mark messages as read.
+   */
+  markAsRead: (accessToken: string, matchId: string) =>
+    fetchApi<void>(`/api/chats/${matchId}/read`, { method: 'PUT' }, accessToken),
+};
+
+export const PaymentsApi = {
+  /**
+   * Initiate a Stripe payment intent for a lease
+   */
+  initiatePayment: (accessToken: string, leaseId: string) =>
+    fetchApi<{ clientSecret: string }>(
+      '/api/payments/initiate',
+      {
+        method: 'POST',
+        body: JSON.stringify({ leaseId: parseInt(leaseId, 10) }),
+      },
+      accessToken
+    ),
+
+  /**
+   * Create a Stripe Checkout Session for web payments
+   */
+  createCheckoutSession: (accessToken: string, leaseId: string, successUrl: string, cancelUrl: string) =>
+    fetchApi<{ sessionId: string; url: string }>(
+      '/api/payments/create-checkout-session',
+      {
+        method: 'POST',
+        body: JSON.stringify({ 
+          leaseId: parseInt(leaseId, 10),
+          successUrl,
+          cancelUrl
+        }),
+      },
+      accessToken
+    ),
+
+  /**
+   * Confirm a payment and finalize the lease
+   */
+  confirmPayment: (accessToken: string, leaseId: string, paymentIntentId: string) =>
+    fetchApi<{ status: string }>(
+      '/api/payments/confirm',
+      {
+        method: 'POST',
+        body: JSON.stringify({ leaseId: parseInt(leaseId, 10), paymentIntentId }),
+      },
+      accessToken
+    ),
+
+  /**
+   * Verify a checkout session and finalize the lease (for web payment flow)
+   */
+  verifyCheckoutSession: (accessToken: string, sessionId: string) =>
+    fetchApi<{ status: string; leaseId: number }>(
+      '/api/payments/verify-session',
+      {
+        method: 'POST',
+        body: JSON.stringify({ sessionId }),
+      },
+      accessToken
+    ),
+};
+
 // Default export for convenience
 export default {
   Auth: AuthApi,
@@ -674,4 +882,6 @@ export default {
   Conversations: ConversationsApi,
   Admin: AdminApi,
   Interview: InterviewApi,
+  Chat: ChatApi,
+  Payments: PaymentsApi,
 };

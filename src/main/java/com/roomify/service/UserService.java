@@ -1,8 +1,10 @@
 package com.roomify.service;
 
 import com.roomify.model.*;
+import com.roomify.model.enums.LeaseStatus;
 import com.roomify.model.enums.MatchStatus;
 import com.roomify.model.enums.PreferredTenantType;
+import com.roomify.repository.LeaseAgreementRepository;
 import com.roomify.repository.MatchRepository;
 import com.roomify.repository.PropertyRepository;
 import com.roomify.repository.RoleRepository;
@@ -30,6 +32,7 @@ public class UserService {
     private final PropertyRepository propertyRepository;
     // Break circular dependency if PropertyService injects UserService
     private final PropertyService propertyService;
+    private final LeaseAgreementRepository leaseAgreementRepository;
 
     private final Path rootLocation = Paths.get("uploads");
 
@@ -37,21 +40,45 @@ public class UserService {
                        RoleRepository roleRepository,
                        MatchRepository matchRepository,
                        PropertyRepository propertyRepository,
+                       LeaseAgreementRepository leaseAgreementRepository,
                        @Lazy PropertyService propertyService) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.matchRepository = matchRepository;
         this.propertyRepository = propertyRepository;
+        this.leaseAgreementRepository = leaseAgreementRepository;
         this.propertyService = propertyService;
         initStorage();
     }
 
     private void initStorage() {
-        try { Files.createDirectories(rootLocation); } catch (IOException e) { throw new RuntimeException(e); }
+        try {
+            Files.createDirectories(rootLocation);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public Optional<User> getUserById(String id) {
         return userRepository.findById(id);
+    }
+
+    /**
+     * Get the active lease property name for a tenant.
+     * Returns the property title if the tenant has an active lease, null otherwise.
+     */
+    @Transactional
+    public String getActiveLeasePropertyForTenant(String tenantId) {
+        try {
+            return leaseAgreementRepository.findByTenantIdAndStatus(tenantId, LeaseStatus.ACTIVE)
+                    .filter(lease -> lease.getMatch() != null && lease.getMatch().getProperty() != null)
+                    .map(lease -> lease.getMatch().getProperty().getTitle())
+                    .orElse(null);
+        } catch (Exception e) {
+            // Log error but don't fail the entire profile request
+            System.err.println("Error fetching active lease for tenant " + tenantId + ": " + e.getMessage());
+            return null;
+        }
     }
 
     // --- LANDLORD FEED LOGIC ---
@@ -66,11 +93,13 @@ public class UserService {
                 .filter(u -> !Boolean.TRUE.equals(u.getIsBanned())) // Exclude banned users
                 .collect(Collectors.toList());
 
-        if (propertyId == null) return allTenants;
+        if (propertyId == null)
+            return allTenants;
 
         // 2. Filter out tenants already interacted with (Matched or Liked by Landlord)
+
         List<Match> history = matchRepository.findTenantIdsInteractedByLandlord(landlordId, propertyId).stream()
-                .map(id -> matchRepository.findByTenantAndPropertyId(id, propertyId).orElse(null))
+                .map(id -> matchRepository.findByTenant_IdAndProperty_Id(id, propertyId).orElse(null))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
@@ -84,7 +113,8 @@ public class UserService {
         Map<String, Double> scores = new HashMap<>();
 
         for (User tenant : allTenants) {
-            if (hiddenTenantIds.contains(tenant.getId())) continue;
+            if (hiddenTenantIds.contains(tenant.getId()))
+                continue;
 
             double score = 50.0;
 
@@ -111,7 +141,13 @@ public class UserService {
             }
 
             // Rule D: Previous interactions (if declined, lower score but maybe keep visible)
-            // Here we assume if they were passed on, we might show them again much later or at bottom
+            // 4. History Penalty (If previously declined)
+            Optional<Match> prevInteraction = history.stream().filter(m -> m.getTenant().getId().equals(tenant.getId()))
+                    .findFirst();
+            if (prevInteraction.isPresent()) {
+                score += prevInteraction.get().getScore(); // Adds negative score
+            }
+
 
             if (score > 0.0) {
                 scores.put(tenant.getId(), score);
@@ -134,7 +170,8 @@ public class UserService {
             matchRepository.deleteByTenantId(userId);
         }
         if (user.getPhotos() != null) {
-            for (String photoUrl : user.getPhotos()) deleteFileFromDisk(photoUrl);
+            for (String photoUrl : user.getPhotos())
+                deleteFileFromDisk(photoUrl);
         }
         userRepository.delete(user);
     }
@@ -156,9 +193,17 @@ public class UserService {
                                 .ifPresent(existingUser::setRole);
                     }
 
-                    if (payload.containsKey("isVideoPublic")) existingUser.setIsVideoPublic((Boolean) payload.get("isVideoPublic"));
-                    if (payload.containsKey("isSmoker")) existingUser.setIsSmoker((Boolean) payload.get("isSmoker"));
-                    if (payload.containsKey("hasPets")) existingUser.setHasPets((Boolean) payload.get("hasPets"));
+                    // Handle isVideoPublic field explicitly for privacy toggle
+                    if (payload.containsKey("isVideoPublic")) {
+                        existingUser.setIsVideoPublic((Boolean) payload.get("isVideoPublic"));
+                    }
+
+                    if (payload.containsKey("isSmoker"))
+                        existingUser.setIsSmoker((Boolean) payload.get("isSmoker"));
+                    if (payload.containsKey("hasPets"))
+                        existingUser.setHasPets((Boolean) payload.get("hasPets"));
+                    if (payload.containsKey("wantsExtraBathroom"))
+                        existingUser.setWantsExtraBathroom((Boolean) payload.get("wantsExtraBathroom"));
                     if (payload.containsKey("wantsExtraBathroom")) existingUser.setWantsExtraBathroom((Boolean) payload.get("wantsExtraBathroom"));
                     if (payload.containsKey("minRooms") && payload.get("minRooms") instanceof Number)
                         existingUser.setMinRooms(((Number) payload.get("minRooms")).intValue());
@@ -168,7 +213,8 @@ public class UserService {
                         catch (Exception ignored) {}
                     }
 
-                    if (payload.containsKey("photos")) handlePhotos(existingUser, (List<String>) payload.get("photos"));
+                    if (payload.containsKey("photos"))
+                        handlePhotos(existingUser, (List<String>) payload.get("photos"));
 
                     return userRepository.save(existingUser);
                 })
@@ -183,13 +229,16 @@ public class UserService {
                             .seriousnessScore(100) // Default score
                             .isBanned(false);
 
-                    if (payload.containsKey("isSmoker")) newUser.isSmoker((Boolean) payload.get("isSmoker"));
-                    if (payload.containsKey("hasPets")) newUser.hasPets((Boolean) payload.get("hasPets"));
+                    if (payload.containsKey("isSmoker"))
+                        newUser.isSmoker((Boolean) payload.get("isSmoker"));
+                    if (payload.containsKey("hasPets"))
+                        newUser.hasPets((Boolean) payload.get("hasPets"));
 
                     if (payload.containsKey("photos")) {
                         List<String> processed = processNewPhotos((List<String>) payload.get("photos"));
                         newUser.photos(processed);
-                        if(!processed.isEmpty()) newUser.picture(processed.get(0));
+                        if (!processed.isEmpty())
+                            newUser.picture(processed.get(0));
                     }
                     return userRepository.save(newUser.build());
                 });
@@ -200,7 +249,8 @@ public class UserService {
         List<String> processed = processNewPhotos(rawPhotos);
 
         for (String oldUrl : oldPhotos) {
-            if (!processed.contains(oldUrl)) deleteFileFromDisk(oldUrl);
+            if (!processed.contains(oldUrl))
+                deleteFileFromDisk(oldUrl);
         }
         user.setPhotos(processed);
         user.setPicture(!processed.isEmpty() ? processed.get(0) : null);
@@ -209,8 +259,10 @@ public class UserService {
     private List<String> processNewPhotos(List<String> rawPhotos) {
         List<String> processed = new ArrayList<>();
         for (String s : rawPhotos) {
-            if (s.startsWith("data:image")) processed.add(saveBase64Image(s));
-            else processed.add(s);
+            if (s.startsWith("data:image"))
+                processed.add(saveBase64Image(s));
+            else
+                processed.add(s);
         }
         return processed;
     }
@@ -223,13 +275,19 @@ public class UserService {
             String filename = UUID.randomUUID().toString() + ".jpg";
             Files.write(this.rootLocation.resolve(filename), imageBytes);
             return "/user/images/" + filename;
-        } catch (IOException e) { throw new RuntimeException(e); }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private void deleteFileFromDisk(String fileUrl) {
-        if (fileUrl == null || !fileUrl.startsWith("/user/images/")) return;
-        try { Files.deleteIfExists(this.rootLocation.resolve(fileUrl.substring(fileUrl.lastIndexOf("/") + 1))); }
-        catch (IOException e) { System.err.println("Warning: Could not delete " + fileUrl); }
+        if (fileUrl == null || !fileUrl.startsWith("/user/images/"))
+            return;
+        try {
+            Files.deleteIfExists(this.rootLocation.resolve(fileUrl.substring(fileUrl.lastIndexOf("/") + 1)));
+        } catch (IOException e) {
+            System.err.println("Warning: Could not delete " + fileUrl);
+        }
     }
 
     @Transactional
@@ -252,7 +310,8 @@ public class UserService {
             }
 
             String email = jwt.getClaimAsString("email");
-            if (email == null) email = currentId.replace("|", ".") + "@no-email.roomify.com";
+            if (email == null)
+                email = currentId.replace("|", ".") + "@no-email.roomify.com";
 
             User newUser = User.builder()
                     .id(currentId)
@@ -266,11 +325,14 @@ public class UserService {
                     .build();
 
             return userRepository.save(newUser);
-        } catch (Exception e) { throw new RuntimeException(e); }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public boolean isEmailTaken(String email, String currentUserId) {
-        if (email.endsWith("@no-email.roomify.com")) return false;
+        if (email.endsWith("@no-email.roomify.com"))
+            return false;
         return userRepository.existsByEmailFlexible(email.trim(), currentUserId);
     }
 

@@ -21,7 +21,11 @@ import org.springframework.web.multipart.MultipartFile;
 import java.net.MalformedURLException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/properties")
@@ -38,8 +42,7 @@ public class PropertyController {
     public ResponseEntity<?> createProperty(
             @RequestPart("data") String propertyRequestString,
             @RequestParam(value = "images", required = false) List<MultipartFile> images,
-            @AuthenticationPrincipal Jwt jwt
-    ) {
+            @AuthenticationPrincipal Jwt jwt) {
         try {
             PropertyRequest propertyRequest = objectMapper.readValue(propertyRequestString, PropertyRequest.class);
             String userId = jwt.getSubject();
@@ -57,8 +60,7 @@ public class PropertyController {
             @PathVariable Long id,
             @RequestPart("data") String propertyRequestString,
             @RequestPart(value = "images", required = false) List<MultipartFile> images,
-            @AuthenticationPrincipal Jwt jwt
-    ) {
+            @AuthenticationPrincipal Jwt jwt) {
         try {
             PropertyRequest request = objectMapper.readValue(propertyRequestString, PropertyRequest.class);
             String userId = jwt.getSubject();
@@ -75,13 +77,36 @@ public class PropertyController {
     public ResponseEntity<Page<Property>> getMyProperties(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size
-    ) {
+            @RequestParam(defaultValue = "10") int size) {
         String userId = jwt.getSubject();
         Pageable pageable = PageRequest.of(page, size);
         return ResponseEntity.ok(propertyService.getPropertiesByUser(userId, pageable));
     }
 
+    // 3b. GET MY PROPERTIES WITH RENTAL STATUS
+    @GetMapping("/my/status")
+    public ResponseEntity<List<Map<String, Object>>> getMyPropertiesWithStatus(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "100") int size) {
+        String userId = jwt.getSubject();
+        Pageable pageable = PageRequest.of(page, size);
+        Page<Property> properties = propertyService.getPropertiesByUser(userId, pageable);
+        Set<Long> rentedIds = propertyService.getRentedPropertyIds();
+
+        List<Map<String, Object>> result = properties.getContent().stream()
+                .map(property -> {
+                    Map<String, Object> propertyMap = new HashMap<>();
+                    propertyMap.put("property", property);
+                    propertyMap.put("isRented", rentedIds.contains(property.getId()));
+                    return propertyMap;
+                })
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(result);
+    }
+
+    // 4. DELETE PROPERTY
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteProperty(@PathVariable Long id, @AuthenticationPrincipal Jwt jwt) {
         propertyService.deleteProperty(id, jwt.getSubject());
@@ -104,14 +129,17 @@ public class PropertyController {
     }
 
     @GetMapping
-    public ResponseEntity<Page<Property>> getAllProperties(@RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "10") int size) {
+    public ResponseEntity<Page<Property>> getAllProperties(@RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
         Pageable pageable = PageRequest.of(page, size);
         return ResponseEntity.ok(propertyService.getAllProperties(pageable));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Property> getPropertyById(@PathVariable Long id) {
-        return ResponseEntity.ok(propertyService.getPropertyById(id));
+    public ResponseEntity<Property> getPropertyById(@PathVariable Long id, @AuthenticationPrincipal Jwt jwt) {
+        // Pass viewer ID for view tracking; null if somehow unauthenticated
+        String viewerId = jwt != null ? jwt.getSubject() : null;
+        return ResponseEntity.ok(propertyService.getPropertyById(id, viewerId));
     }
 
     // --- UPDATED FEED ENDPOINT ---

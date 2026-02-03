@@ -5,7 +5,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Header, Card, EmptyState, ImageCarousel } from '@/components/ui';
-import { Blue, Neutral, Typography, Spacing, BorderRadius } from '@/constants/theme';
+import { Blue, Neutral, Typography, Spacing, BorderRadius, Semantic } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useMyListings, usePropertyMutations } from '@/hooks/useApi';
 import { getImageUrl } from '@/services/api';
@@ -13,29 +13,51 @@ import { getImageUrl } from '@/services/api';
 export default function LandlordPropertiesScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
-    const { user } = useAuth();
+    const { user, getAccessToken } = useAuth();
 
     const { data: apiProperties, isLoading, error, refetch } = useMyListings();
     const { deleteProperty } = usePropertyMutations();
 
     const [properties, setProperties] = useState<any[]>([]);
+    const [rentedPropertyIds, setRentedPropertyIds] = useState<Set<number>>(new Set());
     const [refreshing, setRefreshing] = useState(false);
 
     const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
+
+    // Fetch rental status for properties
+    const fetchRentalStatus = useCallback(async () => {
+        try {
+            const token = await getAccessToken();
+            const response = await fetch(`http://${MY_IP}:8080/api/properties/my/status`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                const rentedIds = new Set<number>(
+                    data.filter((item: any) => item.isRented).map((item: any) => item.property.id)
+                );
+                setRentedPropertyIds(rentedIds);
+            }
+        } catch (error) {
+            console.error('Error fetching rental status:', error);
+        }
+    }, [getAccessToken, MY_IP]);
 
     useFocusEffect(
         useCallback(() => {
             const timer = setTimeout(() => {
                 refetch();
+                fetchRentalStatus();
             }, 100);
             return () => clearTimeout(timer);
-        }, [refetch])
+        }, [refetch, fetchRentalStatus])
     );
 
     useEffect(() => {
         if (apiProperties && apiProperties.length > 0) {
             const mappedProperties = apiProperties.map(p => ({
                 id: p.id.toString(),
+                numericId: p.id,
                 images: p.images?.map((img: any) => img.url.replace('localhost', MY_IP).replace('127.0.0.1', MY_IP)) || ['https://images.unsplash.com/photo-1568605114967-8130f3a36994'],
                 title: p.title,
                 price: p.price,
@@ -43,18 +65,19 @@ export default function LandlordPropertiesScreen() {
                 bedrooms: p.numberOfRooms,
                 bathrooms: p.hasExtraBathroom ? 2 : 1,
                 interestedCount: p.interestedCount || 0,
-                status: 'active',
+                isRented: rentedPropertyIds.has(p.id),
+                status: rentedPropertyIds.has(p.id) ? 'rented' : 'active',
             }));
 
             setProperties(mappedProperties);
         } else if (!isLoading && !error) {
             setProperties([]);
         }
-    }, [apiProperties, isLoading, error]);
+    }, [apiProperties, isLoading, error, rentedPropertyIds]);
 
     const onRefresh = async () => {
         setRefreshing(true);
-        await refetch();
+        await Promise.all([refetch(), fetchRentalStatus()]);
         setRefreshing(false);
     };
 
@@ -98,15 +121,26 @@ export default function LandlordPropertiesScreen() {
 
     const renderProperty = ({ item }: { item: any }) => {
         const imageUrls = (item.images || []).map((img: string) => getImageUrl(img)).filter((url: string) => url);
+        const isRented = item.isRented;
 
         return (
             <Card shadow="md" style={styles.propertyCard}>
-                <ImageCarousel
-                    images={imageUrls}
-                    height={200}
-                    showPageIndicator={true}
-                    enableZoom={true}
-                />
+                <View style={styles.imageContainer}>
+                    <ImageCarousel
+                        images={imageUrls}
+                        height={200}
+                        showPageIndicator={true}
+                        enableZoom={true}
+                    />
+                    {isRented && (
+                        <View style={styles.rentedOverlay}>
+                            <View style={styles.rentedBadge}>
+                                <Ionicons name="checkmark-circle" size={24} color="#FFFFFF" />
+                                <Text style={styles.rentedText}>RENTED</Text>
+                            </View>
+                        </View>
+                    )}
+                </View>
 
                 <View style={styles.propertyContent}>
                     <View style={styles.propertyHeader}>
@@ -114,8 +148,10 @@ export default function LandlordPropertiesScreen() {
                             <Text style={styles.price}>${item.price}</Text>
                             <Text style={styles.priceUnit}>/month</Text>
                         </View>
-                        <View style={[styles.statusBadge, styles.statusActive]}>
-                            <Text style={[styles.statusText, styles.statusTextActive]}>Active</Text>
+                        <View style={[styles.statusBadge, isRented ? styles.statusRented : styles.statusActive]}>
+                            <Text style={[styles.statusText, isRented ? styles.statusTextRented : styles.statusTextActive]}>
+                                {isRented ? '✅ Rented' : 'Active'}
+                            </Text>
                         </View>
                     </View>
 
@@ -138,27 +174,32 @@ export default function LandlordPropertiesScreen() {
                     </View>
 
                     <View style={styles.actions}>
-                        <TouchableOpacity
-                            style={styles.interestedButton}
-                            onPress={() => handleViewInterested(item.id)}
-                        >
-                            <Ionicons name="people" size={18} color={Blue[600]} />
-                            <Text style={styles.interestedText}>
-                                {item.interestedCount} Interested
-                            </Text>
-                        </TouchableOpacity>
+                        {!isRented && (
+                            <TouchableOpacity
+                                style={styles.interestedButton}
+                                onPress={() => handleViewInterested(item.id)}
+                            >
+                                <Ionicons name="people" size={18} color={Blue[600]} />
+                                <Text style={styles.interestedText}>
+                                    {item.interestedCount} Interested
+                                </Text>
+                            </TouchableOpacity>
+                        )}
 
                         <View style={styles.actionButtons}>
-                            <TouchableOpacity
-                                style={styles.editButton}
-                                onPress={() => handleEditProperty(item.id)}
-                            >
-                                <Ionicons name="create-outline" size={18} color={Neutral[600]} />
-                            </TouchableOpacity>
+                            {!isRented && (
+                                <TouchableOpacity
+                                    style={styles.editButton}
+                                    onPress={() => handleEditProperty(item.id)}
+                                >
+                                    <Ionicons name="create-outline" size={18} color={Neutral[600]} />
+                                </TouchableOpacity>
+                            )}
 
                             <TouchableOpacity
-                                style={styles.deleteButton}
-                                onPress={() => handleDeleteProperty(item.id)}
+                                style={[styles.deleteButton, isRented && styles.deleteButtonDisabled]}
+                                onPress={() => !isRented && handleDeleteProperty(item.id)}
+                                disabled={isRented}
                             >
                                 <Ionicons name="trash-outline" size={18} color="#DC2626" />
                             </TouchableOpacity>
@@ -220,6 +261,10 @@ const styles = StyleSheet.create({
     addButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: Blue[600], alignItems: 'center', justifyContent: 'center' },
     listContent: { padding: Spacing.base, paddingBottom: 100 },
     propertyCard: { marginBottom: Spacing.base, overflow: 'hidden' },
+    imageContainer: { position: 'relative' },
+    rentedOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'center', alignItems: 'center' },
+    rentedBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: Semantic?.success || '#22c55e', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, gap: 8 },
+    rentedText: { color: '#FFFFFF', fontSize: 18, fontWeight: 'bold' },
     propertyContent: { padding: Spacing.md },
     propertyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xs },
     priceContainer: { flexDirection: 'row', alignItems: 'baseline' },
@@ -227,8 +272,10 @@ const styles = StyleSheet.create({
     priceUnit: { fontSize: Typography.size.sm, color: Neutral[500], marginLeft: 2 },
     statusBadge: { paddingHorizontal: Spacing.sm, paddingVertical: 4, borderRadius: 100 },
     statusActive: { backgroundColor: '#DCFCE7' },
+    statusRented: { backgroundColor: '#DCFCE7' },
     statusText: { fontSize: Typography.size.xs, fontWeight: Typography.weight.medium },
     statusTextActive: { color: '#16A34A' },
+    statusTextRented: { color: '#16A34A' },
     title: { fontSize: Typography.size.lg, fontWeight: Typography.weight.semibold, color: Neutral[900] },
     locationRow: { flexDirection: 'row', alignItems: 'center', marginTop: Spacing.xs },
     location: { fontSize: Typography.size.sm, color: Neutral[500], marginLeft: 4 },
@@ -241,4 +288,5 @@ const styles = StyleSheet.create({
     editButton: { padding: Spacing.sm, backgroundColor: Neutral[100], borderRadius: BorderRadius.lg },
     actionButtons: { flexDirection: 'row', gap: Spacing.sm },
     deleteButton: { padding: Spacing.sm, backgroundColor: '#FEE2E2', borderRadius: BorderRadius.lg },
+    deleteButtonDisabled: { opacity: 0.5 },
 });

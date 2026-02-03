@@ -60,6 +60,9 @@ export default function ProfileScreen() {
     const [wantsExtraBath, setWantsExtraBath] = useState(false);
     const [tenantType, setTenantType] = useState('STUDENT');
 
+    // Active Lease (Verified Resident)
+    const [activeLeaseProperty, setActiveLeaseProperty] = useState<string | null>(null);
+
     // UI State
     const [isEditing, setIsEditing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
@@ -67,6 +70,27 @@ export default function ProfileScreen() {
     const [isGalleryVisible, setIsGalleryVisible] = useState(false);
 
     const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
+
+    // Fetch active lease property when component mounts or user changes
+    useEffect(() => {
+        const fetchActiveLeaseProperty = async () => {
+            if (!user?.sub) return;
+            try {
+                const token = await getAccessToken();
+                const encodedUserId = encodeURIComponent(user.sub);
+                const response = await fetch(`http://${MY_IP}:8080/user/${encodedUserId}/profile`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    setActiveLeaseProperty(data.activeLeaseProperty);
+                }
+            } catch (error) {
+                console.error('Error fetching active lease:', error);
+            }
+        };
+        fetchActiveLeaseProperty();
+    }, [user?.sub, getAccessToken]);
 
     useFocusEffect(useCallback(() => { refreshUser(); }, []));
 
@@ -202,6 +226,19 @@ export default function ProfileScreen() {
                         <Text style={styles.userEmailHeader}>{tenantType} • {email}</Text>
                     </View>
                 </View>
+
+                {/* VERIFIED RESIDENT BADGE */}
+                {activeLeaseProperty && (
+                    <View style={styles.residentBadgeCard}>
+                        <View style={styles.residentBadgeContent}>
+                            <Ionicons name="home" size={24} color="#22c55e" />
+                            <View style={styles.residentBadgeText}>
+                                <Text style={styles.residentBadgeTitle}>🏠 Verified Resident</Text>
+                                <Text style={styles.residentBadgeSubtitle}>Currently living at {activeLeaseProperty}</Text>
+                            </View>
+                        </View>
+                    </View>
+                )}
 
                 {/* PHOTOS GALLERY (Updated with Delete/Reorder) */}
                 <View style={styles.gallerySection}>
@@ -497,6 +534,13 @@ const styles = StyleSheet.create({
     userEmailHeader: { fontSize: Typography.size.sm, color: Neutral[500], marginTop: 2, textTransform: 'capitalize' },
     verifiedBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(34, 197, 94, 0.1)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, gap: 4 },
     verifiedText: { fontSize: 12, fontWeight: '600', color: '#22c55e' },
+
+    // Verified Resident Badge
+    residentBadgeCard: { marginHorizontal: Spacing.base, marginBottom: Spacing.lg, borderRadius: 16, backgroundColor: 'rgba(34, 197, 94, 0.1)', borderWidth: 2, borderColor: '#22c55e', padding: Spacing.md },
+    residentBadgeContent: { flexDirection: 'row', alignItems: 'center' },
+    residentBadgeText: { marginLeft: Spacing.sm, flex: 1 },
+    residentBadgeTitle: { fontSize: Typography.size.base, fontWeight: Typography.weight.bold, color: '#166534' },
+    residentBadgeSubtitle: { fontSize: Typography.size.sm, color: '#22c55e', marginTop: 2 },
 
     // Express Profile Card
     expressProfileCard: { marginHorizontal: Spacing.base, marginBottom: Spacing.lg, borderRadius: 16, overflow: 'hidden', shadowColor: '#6366f1', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 },

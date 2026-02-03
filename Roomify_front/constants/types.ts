@@ -25,6 +25,12 @@ export interface Property {
     // Remove: owner: User;
     // Add these instead to match PropertyFeedResponse.java:
     ownerId: string;
+
+    // Social Proof Fields
+    activeViewersCount?: number;
+    isTrending?: boolean;
+
+    // Owner details for quick reference
     ownerFirstName?: string;
     ownerPicture?: string;
 }
@@ -58,4 +64,51 @@ export interface Preferences {
     searchLatitude?: number;
     searchLongitude?: number;
     searchRadiusKm?: number;
+}
+
+// ============================================
+// CHAT & RENTAL WORKFLOW TYPES
+// ============================================
+
+export type MessageType = 'TEXT' | 'SYSTEM' | 'ACTION_CARD';
+
+export type MatchStatus = 
+    | 'TENANT_LIKED' 
+    | 'LANDLORD_LIKED' 
+    | 'MATCHED'
+    | 'VIEWING_REQUESTED'
+    | 'VIEWING_SCHEDULED'
+    | 'OFFER_PENDING'
+    | 'RENTED'
+    | 'LANDLORD_DECLINED'
+    | 'TENANT_DECLINED';
+
+/**
+ * Parsed metadata for ACTION_CARD messages.
+ * The API layer parses the JSON string into this object.
+ */
+export interface ChatMessageMetadata {
+    action: 'VIEWING_PROPOSAL' | 'RENT_PROPOSAL';
+    // For VIEWING_PROPOSAL
+    date?: string;
+    formattedDate?: string;
+    // For RENT_PROPOSAL
+    leaseId?: number;
+    price?: number;
+    currency?: string;
+    startDate?: string;
+    leaseStatus?: 'PENDING' | 'ACTIVE' | 'CANCELLED' | 'EXPIRED';
+}
+
+/**
+ * Chat message with parsed metadata.
+ */
+export interface ChatMessage {
+    id: string;
+    text: string;
+    type: MessageType;
+    metadata?: ChatMessageMetadata | null;
+    sender: 'me' | 'other' | 'system';
+    isRead: boolean;
+    timestamp: string;
 }

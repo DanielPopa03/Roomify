@@ -81,7 +81,7 @@ export default function LandlordInterestedScreen() {
 
         try {
             const token = await getAccessToken();
-            const response = await fetch(`http://${MY_IP}:8080/api/matches/landlord/swipe`, {
+            const response = await fetch(`http://${MY_IP}:8080/api/matches/landlord/invite`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,

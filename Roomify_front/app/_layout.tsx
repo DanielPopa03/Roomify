@@ -19,7 +19,7 @@ function MainLayout() {
 
     const inAuthGroup = segments[0] === 'login';
     const inSetupScreen = segments[0] === 'complete-profile';
-    const inBannedScreen = segments[0] === 'banned'; // Check if on banned screen
+    const inBannedScreen = (segments[0] as string) === 'banned'; // Check if on banned screen
 
     // 0. CHECK BAN STATUS FIRST
     if (isAuthenticated && isBanned) {
@@ -92,10 +92,14 @@ function MainLayout() {
   );
 }
 
+// 2. The Root Layout just wraps the MainLayout with the Provider
+import { StripeProviderWrapper } from '../components/StripeProviderWrapper';
 export default function RootLayout() {
   return (
+    <StripeProviderWrapper>
       <AuthProvider>
         <MainLayout />
       </AuthProvider>
+    </StripeProviderWrapper>
   );
 }

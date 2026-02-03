@@ -21,6 +21,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.net.MalformedURLException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -50,6 +51,22 @@ public class UserController {
     public ResponseEntity<User> getUser(@PathVariable String id) {
         return userService.getUserById(id)
                 .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Get user profile with additional lease information.
+     * Returns user data plus activeLeaseProperty if they have an active lease.
+     */
+    @GetMapping("/{id:.+}/profile")
+    public ResponseEntity<Map<String, Object>> getUserProfile(@PathVariable String id) {
+        return userService.getUserById(id)
+                .map(user -> {
+                    Map<String, Object> profile = new HashMap<>();
+                    profile.put("user", user);
+                    profile.put("activeLeaseProperty", userService.getActiveLeasePropertyForTenant(id));
+                    return ResponseEntity.ok(profile);
+                })
                 .orElse(ResponseEntity.notFound().build());
     }
 
