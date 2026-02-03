@@ -3,9 +3,11 @@ package com.roomify.service;
 import com.roomify.dto.PropertyRequest;
 import com.roomify.model.*;
 import com.roomify.model.enums.LayoutType;
+import com.roomify.model.enums.LeaseStatus;
 import com.roomify.model.enums.MatchStatus;
 import com.roomify.model.enums.PreferredTenantType;
 import com.roomify.repository.ChatMessageRepository;
+import com.roomify.repository.LeaseAgreementRepository;
 import com.roomify.repository.MatchRepository;
 import com.roomify.repository.PreferencesRepository;
 import com.roomify.repository.PropertyRepository;
@@ -39,6 +41,7 @@ public class PropertyService {
     private final PreferencesService preferencesService;
     private final GeocodingService geocodingService;
     private final PropertyViewRepository propertyViewRepository;
+    private final LeaseAgreementRepository leaseAgreementRepository;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -59,7 +62,8 @@ public class PropertyService {
             PreferencesRepository preferencesRepository,
             PreferencesService preferencesService,
             GeocodingService geocodingService,
-            PropertyViewRepository propertyViewRepository) {
+            PropertyViewRepository propertyViewRepository,
+            LeaseAgreementRepository leaseAgreementRepository) {
         this.propertyRepository = propertyRepository;
         this.matchRepository = matchRepository;
         this.chatMessageRepository = chatMessageRepository;
@@ -68,6 +72,7 @@ public class PropertyService {
         this.preferencesService = preferencesService;
         this.geocodingService = geocodingService;
         this.propertyViewRepository = propertyViewRepository;
+        this.leaseAgreementRepository = leaseAgreementRepository;
         initStorage();
     }
 
@@ -116,6 +121,10 @@ public class PropertyService {
                 .map(m -> m.getProperty().getId())
                 .collect(Collectors.toSet());
 
+        // Get IDs of properties that are already rented (have ACTIVE lease)
+        Set<Long> rentedPropertyIds = new HashSet<>(
+                leaseAgreementRepository.findPropertyIdsByLeaseStatus(LeaseStatus.ACTIVE));
+
         Map<Long, Double> historicalScores = history.stream()
                 .collect(Collectors.toMap(m -> m.getProperty().getId(), Match::getScore, (s1, s2) -> s1));
 
@@ -123,6 +132,7 @@ public class PropertyService {
 
         List<Property> candidates = propertyRepository.findAll().stream()
                 .filter(p -> !hiddenPropertyIds.contains(p.getId()))
+                .filter(p -> !rentedPropertyIds.contains(p.getId())) // Exclude rented properties
                 .filter(p -> !p.getOwner().getId().equals(userId))
                 .filter(p -> {
                     if (userPreferences.isPresent()) {
@@ -406,6 +416,21 @@ public class PropertyService {
 
     public Page<Property> getPropertiesByUser(String userId, Pageable pageable) {
         return propertyRepository.findByOwner_Id(userId, pageable);
+    }
+
+    /**
+     * Check if a property has been rented (has an ACTIVE lease).
+     */
+    public boolean isPropertyRented(Long propertyId) {
+        List<Long> rentedIds = leaseAgreementRepository.findPropertyIdsByLeaseStatus(LeaseStatus.ACTIVE);
+        return rentedIds.contains(propertyId);
+    }
+
+    /**
+     * Get all rented property IDs (for batch checks).
+     */
+    public Set<Long> getRentedPropertyIds() {
+        return new HashSet<>(leaseAgreementRepository.findPropertyIdsByLeaseStatus(LeaseStatus.ACTIVE));
     }
 
     public Page<Property> getAllProperties(Pageable pageable) {

@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
-    KeyboardAvoidingView, Platform, ActivityIndicator
+    KeyboardAvoidingView, Platform, ActivityIndicator, Modal, Alert
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Blue, Neutral, Spacing, Typography, BorderRadius } from '@/constants/theme';
+import { Blue, Neutral, Spacing, Typography, BorderRadius, Shadows } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { ChatApi } from '@/services/api';
+import { SystemMessage, ActionCard } from '@/components/ui';
+import type { ChatMessage as ChatMessageType } from '@/constants/types';
 
 export default function TenantChatRoomScreen() {
     const { chatId, title, subTitle } = useLocalSearchParams();
@@ -16,44 +19,47 @@ export default function TenantChatRoomScreen() {
     const flatListRef = useRef<FlatList>(null);
     const { getAccessToken } = useAuth();
 
-    const [messages, setMessages] = useState<any[]>([]);
+    const [messages, setMessages] = useState<ChatMessageType[]>([]);
     const [inputText, setInputText] = useState('');
     const [isLoading, setIsLoading] = useState(true);
     const [sending, setSending] = useState(false);
 
-    const MY_IP = process.env.EXPO_PUBLIC_BACKEND_IP || "localhost";
+    // NEW: UI State
+    const [isActionSheetVisible, setIsActionSheetVisible] = useState(false);
+    const [isScheduleModalVisible, setScheduleModalVisible] = useState(false);
+    const [proposedDate, setProposedDate] = useState('');
+    const [proposedTime, setProposedTime] = useState('');
+    const [sendingRequest, setSendingRequest] = useState(false);
 
-    // --- 1. Mark Messages as Read ---
-    const markAsRead = useCallback(async () => {
-        try {
-            const token = await getAccessToken();
-            await fetch(`http://${MY_IP}:8080/api/chats/${chatId}/read`, {
-                method: 'PUT',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-        } catch (error) {
-            console.error("Failed to mark messages as read", error);
-        }
-    }, [chatId, getAccessToken, MY_IP]);
-
-    // --- 2. Fetch Messages ---
+    // --- 1. Fetch Messages ---
     const fetchMessages = useCallback(async (showLoading = false) => {
         try {
             const token = await getAccessToken();
-            const response = await fetch(`http://${MY_IP}:8080/api/chats/${chatId}/messages`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
+            const matchId = Array.isArray(chatId) ? chatId[0] : chatId;
+            if (!token || !matchId) return;
 
-            if (response.ok) {
-                const data = await response.json();
-                setMessages(data);
+            const response = await ChatApi.getMessages(token, matchId);
+            if (response.data) {
+                setMessages(response.data);
             }
         } catch (error) {
             console.error("Failed to fetch messages", error);
         } finally {
             if (showLoading) setIsLoading(false);
         }
-    }, [chatId, getAccessToken, MY_IP]);
+    }, [chatId, getAccessToken]);
+
+    // --- 2. Mark Messages as Read ---
+    const markAsRead = useCallback(async () => {
+        try {
+            const token = await getAccessToken();
+            const matchId = Array.isArray(chatId) ? chatId[0] : chatId;
+            if (!token || !matchId) return;
+            await ChatApi.markAsRead(token, matchId);
+        } catch (error) {
+            console.error("Failed to mark messages as read", error);
+        }
+    }, [chatId, getAccessToken]);
 
     // --- 3. Lifecycle & Polling ---
     useEffect(() => {
@@ -68,7 +74,7 @@ export default function TenantChatRoomScreen() {
         return () => clearInterval(interval);
     }, [fetchMessages, markAsRead]);
 
-    // --- 4. Send Message Logic ---
+    // --- 4. Send Text Message ---
     const sendMessage = async () => {
         if (!inputText.trim()) return;
 
@@ -77,9 +83,11 @@ export default function TenantChatRoomScreen() {
         setSending(true);
 
         const tempId = Date.now().toString();
-        const optimisticMessage = {
+        const optimisticMessage: ChatMessageType = {
             id: tempId,
             text: textToSend,
+            type: 'TEXT',
+            metadata: null,
             sender: 'me',
             isRead: false,
             timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
@@ -90,18 +98,11 @@ export default function TenantChatRoomScreen() {
 
         try {
             const token = await getAccessToken();
-            const response = await fetch(`http://${MY_IP}:8080/api/chats/${chatId}/messages`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ text: textToSend })
-            });
+            const matchId = Array.isArray(chatId) ? chatId[0] : chatId;
+            if (!token || !matchId) return;
 
-            if (response.ok) {
-                fetchMessages();
-            }
+            await ChatApi.sendMessage(token, matchId, textToSend);
+            fetchMessages();
         } catch (error) {
             console.error("Send failed", error);
         } finally {
@@ -109,7 +110,7 @@ export default function TenantChatRoomScreen() {
         }
     };
 
-    // --- 5. Handle Enter vs Shift+Enter ---
+    // --- 5. Handle Enter Key ---
     const handleKeyPress = (e: any) => {
         if (e.nativeEvent.key === 'Enter' && !e.nativeEvent.shiftKey) {
             e.preventDefault();
@@ -117,7 +118,85 @@ export default function TenantChatRoomScreen() {
         }
     };
 
-    const renderMessage = ({ item }: { item: any }) => {
+    // --- 6. NEW: Schedule Viewing (Tenant can also propose) ---
+    const handleScheduleViewing = async () => {
+        if (!proposedDate || !proposedTime) {
+            Alert.alert('Missing Info', 'Please enter both date and time.');
+            return;
+        }
+
+        const dateTime = `${proposedDate}T${proposedTime}:00`;
+        
+        setSendingRequest(true);
+        try {
+            const token = await getAccessToken();
+            const matchId = Array.isArray(chatId) ? chatId[0] : chatId;
+            if (!token || !matchId) return;
+            
+            const response = await ChatApi.proposeViewing(token, matchId, dateTime);
+            if (response.error) {
+                Alert.alert('Error', response.error);
+            } else {
+                setScheduleModalVisible(false);
+                setProposedDate('');
+                setProposedTime('');
+                fetchMessages();
+            }
+        } catch (error) {
+            Alert.alert('Error', 'Failed to propose viewing');
+        } finally {
+            setSendingRequest(false);
+        }
+    };
+
+    // --- 7. NEW: Accept Viewing (from ActionCard) ---
+    const handleAcceptViewing = async () => {
+        try {
+            const token = await getAccessToken();
+            const matchId = Array.isArray(chatId) ? chatId[0] : chatId;
+            if (!token || !matchId) return;
+            
+            const response = await ChatApi.acceptViewing(token, matchId);
+            if (response.error) {
+                Alert.alert('Error', response.error);
+            } else {
+                fetchMessages();
+            }
+        } catch (error) {
+            Alert.alert('Error', 'Failed to accept viewing');
+        }
+    };
+
+    // --- 8. NEW: Pay Rent (mocked for Phase 1) ---
+    const handlePayRent = () => {
+        Alert.alert(
+            '💳 Payment Required',
+            'This would open the payment flow in a future version.\n\nFor now, contact the landlord directly to finalize the lease.',
+            [{ text: 'OK', style: 'default' }]
+        );
+    };
+
+    // --- 9. Render Message with Type Switching ---
+    const renderMessage = ({ item }: { item: ChatMessageType }) => {
+        // SYSTEM messages: centered gray text
+        if (item.type === 'SYSTEM') {
+            return <SystemMessage text={item.text} timestamp={item.timestamp} />;
+        }
+
+        // ACTION_CARD messages: interactive cards
+        if (item.type === 'ACTION_CARD' && item.metadata) {
+            return (
+                <ActionCard
+                    metadata={item.metadata}
+                    sender={item.sender}
+                    timestamp={item.timestamp}
+                    onAcceptViewing={item.sender !== 'me' ? handleAcceptViewing : undefined}
+                    onPayRent={item.sender !== 'me' && item.metadata.action === 'RENT_PROPOSAL' ? handlePayRent : undefined}
+                />
+            );
+        }
+
+        // TEXT messages: standard bubbles
         const isMe = item.sender === 'me';
         return (
             <View style={[styles.messageBubble, isMe ? styles.myMessage : styles.theirMessage]}>
@@ -125,20 +204,16 @@ export default function TenantChatRoomScreen() {
                     {item.text}
                 </Text>
 
-                {/* Footer: Time + Read Ticks */}
                 <View style={styles.messageFooter}>
                     <Text style={[styles.timeText, isMe ? styles.myTimeText : styles.theirTimeText]}>
                         {item.timestamp}
                     </Text>
 
-                    {/* Only show ticks for MY messages */}
                     {isMe && (
                         <View style={styles.readReceiptContainer}>
                             {item.isRead ? (
-                                // READ: Double Green Ticks
                                 <Ionicons name="checkmark-done" size={16} color="#4ADE80" />
                             ) : (
-                                // SENT: Single Grey Tick
                                 <Ionicons name="checkmark" size={16} color="rgba(255,255,255,0.6)" />
                             )}
                         </View>
@@ -180,6 +255,14 @@ export default function TenantChatRoomScreen() {
                 keyboardVerticalOffset={0}
             >
                 <View style={[styles.inputContainer, { paddingBottom: Math.max(Spacing.md, insets.bottom) }]}>
+                    {/* NEW: Plus Button for Actions */}
+                    <TouchableOpacity 
+                        style={styles.actionButton}
+                        onPress={() => setIsActionSheetVisible(true)}
+                    >
+                        <Ionicons name="add" size={24} color={Blue[600]} />
+                    </TouchableOpacity>
+
                     <TextInput
                         style={styles.input}
                         placeholder="Type a message..."
@@ -197,6 +280,96 @@ export default function TenantChatRoomScreen() {
                     </TouchableOpacity>
                 </View>
             </KeyboardAvoidingView>
+
+            {/* Action Sheet Modal */}
+            <Modal
+                visible={isActionSheetVisible}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setIsActionSheetVisible(false)}
+            >
+                <TouchableOpacity 
+                    style={styles.modalOverlay} 
+                    activeOpacity={1} 
+                    onPress={() => setIsActionSheetVisible(false)}
+                >
+                    <View style={styles.actionSheet}>
+                        <View style={styles.actionSheetHandle} />
+                        <Text style={styles.actionSheetTitle}>Chat Actions</Text>
+                        
+                        {/* Schedule Viewing */}
+                        <TouchableOpacity 
+                            style={styles.actionItem}
+                            onPress={() => {
+                                setIsActionSheetVisible(false);
+                                setScheduleModalVisible(true);
+                            }}
+                        >
+                            <View style={[styles.actionIcon, { backgroundColor: '#FEF3C7' }]}>
+                                <Ionicons name="calendar-outline" size={24} color="#F59E0B" />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.actionText}>📅 Request Viewing</Text>
+                                <Text style={styles.actionSubtext}>Propose a time to see the property</Text>
+                            </View>
+                        </TouchableOpacity>
+                        
+                        <View style={{ height: Spacing.xl + insets.bottom }} />
+                    </View>
+                </TouchableOpacity>
+            </Modal>
+
+            {/* Schedule Viewing Modal */}
+            <Modal
+                visible={isScheduleModalVisible}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setScheduleModalVisible(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.formModal}>
+                        <Text style={styles.formModalTitle}>📅 Request Viewing</Text>
+                        
+                        <Text style={styles.inputLabel}>Date (YYYY-MM-DD)</Text>
+                        <TextInput
+                            style={styles.formInput}
+                            placeholder="2026-03-15"
+                            value={proposedDate}
+                            onChangeText={setProposedDate}
+                            keyboardType="numbers-and-punctuation"
+                        />
+                        
+                        <Text style={styles.inputLabel}>Time (HH:MM)</Text>
+                        <TextInput
+                            style={styles.formInput}
+                            placeholder="14:00"
+                            value={proposedTime}
+                            onChangeText={setProposedTime}
+                            keyboardType="numbers-and-punctuation"
+                        />
+                        
+                        <View style={styles.formButtons}>
+                            <TouchableOpacity 
+                                style={styles.cancelButton}
+                                onPress={() => setScheduleModalVisible(false)}
+                            >
+                                <Text style={styles.cancelButtonText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity 
+                                style={[styles.submitButton, sendingRequest && { opacity: 0.5 }]}
+                                onPress={handleScheduleViewing}
+                                disabled={sendingRequest}
+                            >
+                                {sendingRequest ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                    <Text style={styles.submitButtonText}>Request</Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </View>
     );
 }
@@ -226,7 +399,29 @@ const styles = StyleSheet.create({
     readReceiptContainer: { marginLeft: 2 },
 
     inputContainer: { flexDirection: 'row', alignItems: 'center', padding: Spacing.sm, borderTopWidth: 1, borderTopColor: Neutral[100], backgroundColor: '#FFFFFF' },
+    actionButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: Neutral[100], justifyContent: 'center', alignItems: 'center', marginRight: Spacing.xs },
     input: { flex: 1, backgroundColor: Neutral[50], borderRadius: BorderRadius.full, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, maxHeight: 100 },
     sendButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: Blue[600], justifyContent: 'center', alignItems: 'center', marginLeft: Spacing.sm },
     sendButtonDisabled: { backgroundColor: Neutral[300] },
+
+    // Action Sheet
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    actionSheet: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: Spacing.lg, ...Shadows.lg },
+    actionSheetHandle: { width: 40, height: 4, backgroundColor: Neutral[300], borderRadius: 2, alignSelf: 'center', marginBottom: Spacing.lg },
+    actionSheetTitle: { fontSize: Typography.size.lg, fontWeight: '700', color: Neutral[900], marginBottom: Spacing.lg, textAlign: 'center' },
+    actionItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: Spacing.md, borderBottomWidth: 1, borderBottomColor: Neutral[50] },
+    actionIcon: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginRight: Spacing.md },
+    actionText: { fontSize: Typography.size.base, fontWeight: '600', color: Neutral[900] },
+    actionSubtext: { fontSize: Typography.size.xs, color: Neutral[500], marginTop: 2 },
+
+    // Form Modals
+    formModal: { backgroundColor: '#fff', marginHorizontal: Spacing.lg, borderRadius: BorderRadius.lg, padding: Spacing.lg, ...Shadows.lg },
+    formModalTitle: { fontSize: Typography.size.xl, fontWeight: '700', color: Neutral[900], marginBottom: Spacing.lg, textAlign: 'center' },
+    inputLabel: { fontSize: Typography.size.sm, fontWeight: '600', color: Neutral[700], marginBottom: Spacing.xs },
+    formInput: { backgroundColor: Neutral[50], borderRadius: BorderRadius.base, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, fontSize: 16, marginBottom: Spacing.md, borderWidth: 1, borderColor: Neutral[200] },
+    formButtons: { flexDirection: 'row', justifyContent: 'space-between', marginTop: Spacing.md },
+    cancelButton: { flex: 1, padding: Spacing.md, marginRight: Spacing.sm, borderRadius: BorderRadius.base, backgroundColor: Neutral[100], alignItems: 'center' },
+    cancelButtonText: { fontSize: Typography.size.base, fontWeight: '600', color: Neutral[700] },
+    submitButton: { flex: 1, padding: Spacing.md, marginLeft: Spacing.sm, borderRadius: BorderRadius.base, backgroundColor: Blue[600], alignItems: 'center' },
+    submitButtonText: { fontSize: Typography.size.base, fontWeight: '600', color: '#fff' },
 });

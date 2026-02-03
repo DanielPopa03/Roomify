@@ -20,7 +20,11 @@ import org.springframework.web.multipart.MultipartFile;
 import java.net.MalformedURLException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/properties")
@@ -82,6 +86,29 @@ public class PropertyController {
         String userId = jwt.getSubject();
         Pageable pageable = PageRequest.of(page, size);
         return ResponseEntity.ok(propertyService.getPropertiesByUser(userId, pageable));
+    }
+
+    // 3b. GET MY PROPERTIES WITH RENTAL STATUS
+    @GetMapping("/my/status")
+    public ResponseEntity<List<Map<String, Object>>> getMyPropertiesWithStatus(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "100") int size) {
+        String userId = jwt.getSubject();
+        Pageable pageable = PageRequest.of(page, size);
+        Page<Property> properties = propertyService.getPropertiesByUser(userId, pageable);
+        Set<Long> rentedIds = propertyService.getRentedPropertyIds();
+        
+        List<Map<String, Object>> result = properties.getContent().stream()
+                .map(property -> {
+                    Map<String, Object> propertyMap = new HashMap<>();
+                    propertyMap.put("property", property);
+                    propertyMap.put("isRented", rentedIds.contains(property.getId()));
+                    return propertyMap;
+                })
+                .collect(Collectors.toList());
+        
+        return ResponseEntity.ok(result);
     }
 
     // 4. DELETE PROPERTY

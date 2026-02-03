@@ -79,10 +79,14 @@ function MainLayout() {
 }
 
 // 2. The Root Layout just wraps the MainLayout with the Provider
+import { StripeProviderWrapper } from '@/components/StripeProviderWrapper';
+
 export default function RootLayout() {
   return (
+    <StripeProviderWrapper>
       <AuthProvider>
         <MainLayout />
       </AuthProvider>
+    </StripeProviderWrapper>
   );
 }
