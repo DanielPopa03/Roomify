@@ -226,7 +226,7 @@ public class UserService {
                             .email(emailInput)
                             .phoneNumber(phoneInput)
                             .role(defaultRole)
-                            .seriousnessScore(100) // Default score
+                            .seriousnessScore(0) // Default score
                             .isBanned(false);
 
                     if (payload.containsKey("isSmoker"))
@@ -321,7 +321,7 @@ public class UserService {
                     .picture(pictureUrl)
                     .photos(pictureUrl != null ? Collections.singletonList(pictureUrl) : new ArrayList<>())
                     .isBanned(false)
-                    .seriousnessScore(100)
+                    .seriousnessScore(0)
                     .build();
 
             return userRepository.save(newUser);
